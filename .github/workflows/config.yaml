@@ -1,12 +1,13 @@
 name: Run Python Playwright (Chromium)
 
-# Controls when the workflow will run
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  workflow_dispatch: # Allows manual triggers from the GitHub UI
+  workflow_dispatch: 
+
+# Force GitHub Actions to use Node 24 for all steps to clear the warning
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   run-script:
