@@ -1,6 +1,7 @@
 # standard script structure
 import os
 import base64
+import gc
 from gitalertmanager import AlertManager
 from gexProcessor import GexProcessor
 
