@@ -1,0 +1,47 @@
+name: Run Python notification
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: 
+
+# Force GitHub Actions to use Node 24 for all steps to clear the warning
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  run-script:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest # Recommended default runner
+
+    steps:
+    # 1. Pull down the source code from your repository
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # 2. Set up the target Python environment
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11' # Change to your preferred Python version
+
+    # 3. Upgrade pip and install package dependencies
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install playwright pytest # Ensures playwright core framework is present
+
+    # 4. Install Chromium browser binaries and system-level OS dependencies
+    - name: Install Playwright Chromium
+      run: python -m playwright install chromium --with-deps
+
+    # 5. Execute your automation script or tests
+    - name: Run Playwright Script
+      run: |
+        python run.py
+        # Alternative: use "pytest" if you are running test suites
+    
+    env:
+          USER_ID: ${{ secrets.TELE_CHAT_ID }}
+          USER_SECRET: ${{ secrets.TELE_TOKEN }}
