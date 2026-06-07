@@ -4,6 +4,9 @@ on:
   push:
     branches: [ "main" ]
   workflow_dispatch: 
+  
+  schedule:
+    - cron: '15 9-10,12-13,15-16 * * 1-5' 
 
 # Force GitHub Actions to use Node 24 for all steps to clear the warning
 env:
