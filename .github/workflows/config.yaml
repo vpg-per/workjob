@@ -29,7 +29,7 @@ jobs:
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        if [ -f .github/workflows/requirements.txt ]; then pip install -r .github/workflows/requirements.txt; fi
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         pip install playwright pytest # Ensures playwright core framework is present
 
     # 4. Install Chromium browser binaries and system-level OS dependencies
@@ -39,7 +39,7 @@ jobs:
     # 5. Execute your automation script or tests
     - name: Run Playwright Script
       run: |
-        python .github/workflows/run.py
+        python run.py
         # Alternative: use "pytest" if you are running test suites
     
     env:
