@@ -39,5 +39,9 @@ jobs:
     # 5. Execute your automation script or tests
     - name: Run Playwright Script
       run: |
-        python .github/workflows/run.py
+        python run.py
         # Alternative: use "pytest" if you are running test suites
+    
+    env:
+          USER_ID: ${{ secrets.TELE_CHAT_ID }}
+          USER_SECRET: ${{ secrets.TELE_TOKEN }}
