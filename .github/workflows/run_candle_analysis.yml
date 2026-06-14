@@ -1,4 +1,4 @@
-name: Run Python notification
+name: Run Candle analysis
 
 on:
   push:
@@ -36,7 +36,7 @@ jobs:
         pip install playwright pytest # Ensures playwright core framework is present
 
     # 5. Execute your automation script or tests
-    - name: Run Playwright Script
+    - name: Run Candle analysis
       run: |
         python run_candle_analysis.py
         # Alternative: use "pytest" if you are running test suites
