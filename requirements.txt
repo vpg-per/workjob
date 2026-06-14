@@ -2,3 +2,6 @@ playwright
 requests
 pytest 
 python-dotenv
+numpy
+pandas
+pandas_ta_classic
