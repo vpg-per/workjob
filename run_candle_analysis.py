@@ -78,6 +78,15 @@ RUN_MATRIX: list[tuple[str, str, bool, bool]] = [
     ("SPY",   "15m",     True,      True),
     ("SPY",   "30m",     True,      True),
     ("SPY",   "1h",      False,     False),
+    ("IWM",   "15m",     True,      True),
+    ("IWM",   "30m",     True,      True),
+    ("IWM",   "1h",      False,     False),
+    ("QQQ",   "15m",     True,      True),
+    ("QQQ",   "30m",     True,      True),
+    ("QQQ",   "1h",      False,     False),
+    ("GLD",   "15m",     True,      True),
+    ("GLD",   "30m",     True,      True),
+    ("GLD",   "1h",      False,     False),
 ]
 
 # Set to True to also run 4h bars (only 30 days of data available from Yahoo)
