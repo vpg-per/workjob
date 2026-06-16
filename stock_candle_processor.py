@@ -46,23 +46,9 @@ from typing import Optional, Tuple
 import numpy as np
 import pandas as pd
 import pandas_ta_classic as ta
+from dataManager import ServiceManager
 
 warnings.filterwarnings("ignore", category=FutureWarning)
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Safe import of dataManager  (immune to circular-import / Windows __pycache__)
-# ──────────────────────────────────────────────────────────────────────────────
-_DM_PATH = Path(__file__).resolve().parent / "dataManager.py"
-if not _DM_PATH.exists():
-    raise FileNotFoundError(
-        f"dataManager.py not found next to this script.\nExpected: {_DM_PATH}"
-    )
-_dm_spec   = importlib.util.spec_from_file_location("dataManager", _DM_PATH)
-_dm_module = importlib.util.module_from_spec(_dm_spec)
-sys.modules.setdefault("dataManager", _dm_module)
-_dm_spec.loader.exec_module(_dm_module)
-ServiceManager = _dm_module.ServiceManager
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Interval metadata
@@ -568,12 +554,8 @@ def print_summary(
 
     # ── 1. Indicator snapshot ────────────────────────────────────────────────
     snap_candidates = [
-        "rec_dt", "hour", "minute",
-        "open", "high", "low", "close",
-        "MACD_12_26_9", "MACDh_12_26_9", "RSI_14",
-        "macd_score", "macd_bias",
-        "rsi_score",  "rsi_bias",
-        "overall_bias",
+        "rec_dt", "hour", "minute", "open", "high", "low", "close", "macd_bias",
+        "rsi_bias", "candle_signal", "candle_group", "overall_bias",
     ]
     snap_cols = [c for c in snap_candidates if c in df.columns]
 
@@ -584,25 +566,25 @@ def print_summary(
     print(sep2)
 
    # ── 2. Pattern hit rows ──────────────────────────────────────────────────
-    hit_candidates = [
-        "rec_dt", "hour", "minute",
-        "open", "high", "low", "close",
-        "macd_score", "macd_bias",
-        "rsi_score",  "rsi_bias",
-        "candle_signal", "candle_group", "overall_bias",
-    ]
-    hit_cols  = [c for c in hit_candidates if c in df.columns]
-    hit_mask  = (df[cdl_cols] != 0).any(axis=1)
-    hits      = df.loc[hit_mask, hit_cols]
+    # hit_candidates = [
+    #     "rec_dt", "hour", "minute",
+    #     "open", "high", "low", "close",
+    #     "macd_score", "macd_bias",
+    #     "rsi_score",  "rsi_bias",
+    #     "candle_signal", "candle_group", "overall_bias",
+    # ]
+    # hit_cols  = [c for c in hit_candidates if c in df.columns]
+    # hit_mask  = (df[cdl_cols] != 0).any(axis=1)
+    # hits      = df.loc[hit_mask, hit_cols]
 
-    print(f"\n{sep1}")
-    print(f"  PATTERN HITS  |  {tag}  |  {len(hits)} signal(s) in window")
-    print(sep1)
-    if hits.empty:
-        print("  No patterns detected in this window.")
-    else:
-        print(hits.tail(20).to_string(index=False))
-    print(sep1)
+    # print(f"\n{sep1}")
+    # print(f"  PATTERN HITS  |  {tag}  |  {len(hits)} signal(s) in window")
+    # print(sep1)
+    # if hits.empty:
+    #     print("  No patterns detected in this window.")
+    # else:
+    #     print(hits.tail(20).to_string(index=False))
+    # print(sep1)
 
     # ── 3. Frequency table ───────────────────────────────────────────────────
     freq = {c: int((df[c] != 0).sum()) for c in cdl_cols if (df[c] != 0).any()}
@@ -636,7 +618,7 @@ def process(
 
     Parameters
     ----------
-    sm         : ServiceManager instance (shared across calls)
+    sm         : ServiceManager instance 
     symbol     : Ticker string, e.g. "SPY", "QQQ", "IWM", "GLD"
     interval   : "15m" | "30m" | "1h" | "4h"
     calc_macd  : If True, compute MACD and macd_score / macd_bias.
@@ -658,7 +640,7 @@ def process(
         # 1. Fetch OHLCV
         df = fetch_ohlcv(sm, symbol, interval)
         print(f"  Rows : {len(df)}   "
-              f"Range: {df['rec_dt'].iloc[0]} → {df['rec_dt'].iloc[-1]}")
+              f"Range: {df['rec_dt'].iloc[0]} {df['hour'].iloc[0]}:{df['minute'].iloc[0]} → {df['rec_dt'].iloc[-1]} {df['hour'].iloc[-1]}:{df['minute'].iloc[-1]}")
 
         # 2. Strategy: MACD + RSI (conditional) + 26 CDL patterns
         df, cdl_cols = run_strategy(df, calc_macd=calc_macd, calc_rsi=calc_rsi)

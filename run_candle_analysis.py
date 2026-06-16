@@ -38,26 +38,9 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-
-# ── Locate stock_candle_processor in the same directory ──────────────────────
-_HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(_HERE))
-
-from stock_candle_processor import ServiceManager, process
-
-# ── AlertManager (optional — gracefully skipped if unavailable) ───────────────
-try:
-    _AM_PATH = _HERE / "alertManager.py"
-    _am_spec   = importlib.util.spec_from_file_location("alertManager", _AM_PATH)
-    _am_module = importlib.util.module_from_spec(_am_spec)
-    _am_spec.loader.exec_module(_am_module)
-    AlertManager = _am_module.AlertManager
-    _ALERT_MANAGER_AVAILABLE = True
-except Exception as _am_err:
-    print(f"[WARN] AlertManager not loaded ({_am_err}). Alerts disabled.")
-    AlertManager = None
-    _ALERT_MANAGER_AVAILABLE = False
-
+from alertManager import AlertManager
+from dataManager import ServiceManager
+from stock_candle_processor import process
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Run matrix
@@ -69,7 +52,6 @@ except Exception as _am_err:
 #   False → skip scoring (sensible for higher timeframes: 1h, 4h where
 #           short history limits MACD/RSI reliability)
 #
-# Add rows freely — a single ServiceManager instance is reused for all calls.
 # ──────────────────────────────────────────────────────────────────────────────
 
 RUN_MATRIX: list[tuple[str, str, bool, bool]] = [
@@ -227,17 +209,8 @@ def main() -> None:
     print(f"  Jobs    : {len(RUN_MATRIX)}")
     print(f"{'═'*70}")
 
-    # One shared ServiceManager — avoids re-loading the module per call
     sm = ServiceManager()
-
-    # One shared AlertManager — single combined alert sent after all intervals
-    am = None
-    if _ALERT_MANAGER_AVAILABLE:
-        try:
-            am = AlertManager()
-            print("  AlertManager   : ready")
-        except Exception as _e:
-            print(f"  AlertManager   : init failed ({_e}) — alerts disabled")
+    altMgr = AlertManager()
 
     results: dict[tuple[str, str], object] = {}
     failed:  list[tuple[str, str]] = []
@@ -283,12 +256,8 @@ def main() -> None:
 
         if alert_msg:
             print(f"\n{alert_msg}")
-            if am is not None:
-                try:
-                    am.send_chart_alert(alert_msg)
-                    print(f"\n  ✔  Telegram alert sent for {symbol}")
-                except Exception as alert_exc:
-                    print(f"\n  ✖  Telegram alert failed for {symbol}: {alert_exc}")
+            altMgr.send_chart_alert(alert_msg)
+            print(f"\n  ✔  Telegram alert sent for {symbol}")
         else:
             # Summarise current bias for each interval without an alert
             print(f"\n  {symbol}  — no bias flip detected")
