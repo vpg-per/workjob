@@ -5,3 +5,4 @@ python-dotenv
 numpy
 pandas
 pandas_ta_classic
+psycopg2
