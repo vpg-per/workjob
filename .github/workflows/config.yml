@@ -6,14 +6,13 @@ on:
   workflow_dispatch: 
   
   schedule:
-    # Runs at minute 15 of hours 9, 10, 12, 13, 15, and 16 (Monday to Friday)
-    - cron: '15 9,10,12,13,15,16 * * 1-5' 
+    - cron: '16 9,10,12,13,15,16 * * 1-5' 
+      timezone: 'America/New_York' # Runs explicitly on Eastern Time
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  # Changed name to make debugging easier in the Actions UI
   run-gex-job:
     timeout-minutes: 15
     runs-on: ubuntu-latest
@@ -34,7 +33,6 @@ jobs:
         pip install playwright pytest
         python -m playwright install chromium --with-deps
 
-    # Fixed: "env:" is now flush underneath the target run execution block
     - name: Run Playwright Script
       env:
         USER_ID: ${{ secrets.TELE_CHAT_ID }}
