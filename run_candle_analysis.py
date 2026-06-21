@@ -275,11 +275,5 @@ def main() -> None:
         print(f"  Failed    : {[f'{s} {i}' for s, i in failed]}")
     print(f"{'═'*70}\n")
 
-
-def main1() -> None:
-    altMgr = AlertManager()
-    altMgr.send_chart_alert("Thisistest")
-    print("Telegram message done.")
-
 if __name__ == "__main__":
-    main1()
+    main()
