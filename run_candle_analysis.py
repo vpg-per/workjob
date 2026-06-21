@@ -31,14 +31,14 @@ Output
   CSV      : <SYMBOL>_<INTERVAL>_analysis.csv  (one file per combination,
              if save_csv=True inside the process() calls)
 """
-
+import os
 import gc
 import importlib.util
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from alertManager import AlertManager
+from gitalertmanager import AlertManager
 from dataManager import ServiceManager
 from stock_candle_processor import process
 
