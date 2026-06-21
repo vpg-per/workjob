@@ -43,6 +43,7 @@ class AlertManager:
 
     def send_chart_alert(self, s_message):
         url = f"https://api.telegram.org/bot{self.token}/sendMessage?chat_id={self.chat_id}&text={s_message}"
+        print(url)
         return requests.get(url).json()
     
     def send_photo_alert(self, image_buffer: io.BytesIO,filename:     str = "sp.png", set_title:str = ""):

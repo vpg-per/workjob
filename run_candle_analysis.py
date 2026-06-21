@@ -278,7 +278,8 @@ def main() -> None:
 
 def main1() -> None:
     altMgr = AlertManager()
-    altMgr.send_chart_alert("This is test");
+    altMgr.send_chart_alert("Thisistest")
+    print("Telegram message done.")
 
 if __name__ == "__main__":
     main1()
