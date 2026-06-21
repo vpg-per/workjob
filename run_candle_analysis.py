@@ -276,5 +276,9 @@ def main() -> None:
     print(f"{'═'*70}\n")
 
 
+def main1() -> None:
+    altMgr = AlertManager()
+    altMgr.send_chart_alert("This is test");
+
 if __name__ == "__main__":
-    main()
+    main1()
