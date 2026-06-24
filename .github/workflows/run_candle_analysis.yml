@@ -38,4 +38,5 @@ jobs:
       env:
         USER_ID: ${{ secrets.TELE_CHAT_ID }}
         USER_SECRET: ${{ secrets.TELE_TOKEN }}
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
       run: python run_candle_analysis.py
