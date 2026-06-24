@@ -79,8 +79,59 @@ if INCLUDE_4H:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Multi-timeframe alert builder
+# Helper: build the `row` dict expected by AlertManager DB methods
 # ──────────────────────────────────────────────────────────────────────────────
+
+def _build_db_row(info: dict) -> dict:
+    """
+    Convert a bias_change_info dict (stored in df.attrs) into the flat `row`
+    dict expected by AlertManager.isAlertExistsinDB / AddAlertRecordtoDB.
+
+    bias_change_info is expected to contain at minimum:
+        lasttime   – datetime-like or str of the bar's timestamp
+        last_bias  – e.g. "Bullish"
+        last_close – float closing price
+        flag       – 1 (bull flip) or -1 (bear flip)
+        rec_dt     – date portion used as the record date
+
+    The keys nmonth / nday / hour / minute are derived here so gitalertmanager
+    does not need to recompute them.
+    """
+    from datetime import datetime as _dt
+
+    # lasttime may arrive as a datetime or as a string — normalise to datetime
+    raw_lt = info.get("lasttime") or info.get("last_time")
+    if isinstance(raw_lt, str):
+        # Try common formats; fall back to "now" so we never crash
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M"):
+            try:
+                raw_lt = _dt.strptime(raw_lt, fmt)
+                break
+            except ValueError:
+                pass
+        else:
+            raw_lt = _dt.now()
+
+    if not isinstance(raw_lt, _dt):
+        raw_lt = _dt.now()
+
+    return {
+        # used by isAlertExistsinDB lookup
+        "lasttime": info.get("lasttime") or info.get("last_time"),
+        "rec_dt":   info.get("rec_dt", raw_lt.date()),
+        # decomposed for the dtlookupval string (kept for backward compat)
+        "nmonth": raw_lt.month,
+        "nday":   raw_lt.day,
+        "hour":   raw_lt.hour,
+        "minute": raw_lt.minute,
+        # used by AddAlertRecordtoDB insert
+        "last_time":  info.get("lasttime") or info.get("last_time"),
+        "last_bias":  info.get("last_bias", ""),
+        "last_close": info.get("last_close", 0.0),
+        "flag":       info.get("flag", 0),
+    }
+
+
 
 # Intervals considered for multi-timeframe agreement (in priority order)
 _MTF_INTERVALS = ("15m", "30m", "1h")
@@ -184,7 +235,7 @@ def build_combined_alert(
         if info["changed"]:
             lines.append(
                 f"{em} {interval:>3s}  FLIPPED: {info['prev_bias']} → {info['last_bias']}"
-                f"  (close: {info['last_close']})"
+                f"  (close: {info['last_close']:.2f})"
             )
         else:
             lines.append(
@@ -243,8 +294,13 @@ def main() -> None:
 
         gc.collect()
 
-    # ── Combined multi-timeframe alert ────────────────────────────────────────
-    # Group results by symbol and send one alert per symbol
+    # ── Combined multi-timeframe alert (DB-gated) ─────────────────────────────
+    # For each symbol:
+    #   1. Check every flipped interval against the DB (isAlertExistsinDB).
+    #   2. Only proceed with an alert if AT LEAST ONE interval flip is new
+    #      (i.e. not already recorded in the DB).
+    #   3. Insert new flip records (AddAlertRecordtoDB) and send ONE Telegram
+    #      alert per symbol.  Intervals already in the DB are skipped silently.
     symbols_in_run = dict.fromkeys(sym for sym, *_ in RUN_MATRIX)  # ordered, deduped
 
     print(f"\n{'─'*70}")
@@ -254,18 +310,46 @@ def main() -> None:
     for symbol in symbols_in_run:
         alert_msg = build_combined_alert(symbol, results)
 
-        if alert_msg:
-            print(f"\n{alert_msg}")
-            altMgr.send_chart_alert(alert_msg)
-            print(f"\n  ✔  Telegram alert sent for {symbol}")
-        else:
-            # Summarise current bias for each interval without an alert
+        if not alert_msg:
+            # No flip detected on any timeframe — print current biases only
             print(f"\n  {symbol}  — no bias flip detected")
             for interval in _MTF_INTERVALS:
                 df = results.get((symbol, interval))
                 if df is not None and "overall_bias" in df.columns:
                     cur = df["overall_bias"].iloc[-1]
                     print(f"    {interval:>3s}  current bias: {cur}")
+            continue
+
+        # ── DB gate: collect intervals that flipped AND are new ──────────────
+        new_flip_intervals: list[str] = []
+
+        for interval in _MTF_INTERVALS:
+            df = results.get((symbol, interval))
+            if df is None:
+                continue
+            info = getattr(df, "attrs", {}).get("bias_change_info")
+            if not info or not info.get("changed"):
+                continue  # no flip on this interval
+
+            row = _build_db_row(info)
+
+            if altMgr.isAlertExistsinDB(row, symbol, interval):
+                print(f"  [DB] {symbol} {interval} flip already recorded — skipping")
+            else:
+                new_flip_intervals.append(interval)
+                altMgr.AddAlertRecordtoDB(row, symbol, interval)
+                print(f"  [DB] {symbol} {interval} new flip — recorded in DB")
+
+        # ── Send Telegram only when there is at least one genuinely new flip ──
+        if new_flip_intervals:
+            print(f"\n{alert_msg}")
+            altMgr.send_chart_alert(alert_msg)
+            print(f"\n  ✔  Telegram alert sent for {symbol} "
+                  f"(new flips: {', '.join(new_flip_intervals)})")
+        else:
+            print(f"\n  {symbol}  — all flips already alerted (no Telegram message sent)")
+            # Still print the current biases for visibility
+            print(alert_msg)
 
     # ── Final summary ────────────────────────────────────────────────────────
     print(f"\n{'═'*70}")
