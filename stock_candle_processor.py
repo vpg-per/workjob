@@ -47,7 +47,12 @@ import numpy as np
 import pandas as pd
 import pandas_ta_classic as ta
 from dataManager import ServiceManager
-
+from key_levels import (
+    find_key_levels,
+    find_swing_highs_lows,
+    find_support_resistance,
+    print_key_levels,
+)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -527,6 +532,63 @@ def detect_bias_change(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def attach_key_levels(
+    df:        "pd.DataFrame",
+    sm         = None,
+    symbol:    str   = "",
+    n_levels:  int   = 3,
+    sr_method: str   = "fractal",   # "fractal" | "cluster" | "pivot"
+    swing_left:  int = 3,
+    swing_right: int = 3,
+) -> "pd.DataFrame":
+    """
+    Computes all key price levels and attaches them to df.attrs['key_levels'].
+
+    Also adds two columns to df:
+        swing_high   — price at confirmed swing high pivot, NaN elsewhere
+        swing_low    — price at confirmed swing low  pivot, NaN elsewhere
+
+    The full dict of levels (session anchors + S/R + swings) is available via:
+        df.attrs['key_levels']
+
+    Parameters
+    ──────────
+    df         : Enriched DataFrame from process() — must contain high/low/close columns
+    sm         : ServiceManager instance (pass None to skip session anchors)
+    symbol     : Ticker string (needed for session anchor fetch)
+    n_levels   : Max support / resistance levels to keep per side
+    sr_method  : Algorithm for S/R — "fractal", "cluster" (KMeans), or "pivot"
+    swing_left / swing_right : Pivot detection look-back / look-forward bar count
+
+    Returns
+    ───────
+    df with swing_high / swing_low columns added, and df.attrs['key_levels'] set.
+
+    Usage example
+    ─────────────
+    df = attach_key_levels(df, sm=sm, symbol="SPY", sr_method="cluster")
+    levels = df.attrs['key_levels']
+    print(f"Nearest support    : {levels['support'][0]:.2f}")
+    print(f"Nearest resistance : {levels['resistance'][0]:.2f}")
+    """
+    levels = find_key_levels(
+        df           = df,
+        sm           = sm,
+        symbol       = symbol,
+        n_levels     = n_levels,
+        sr_method    = sr_method,
+        swing_left   = swing_left,
+        swing_right  = swing_right,
+    )
+    # Persist on the DataFrame so callers (e.g. build_combined_alert) can read them
+    df.attrs["key_levels"] = levels
+
+    # Add swing columns to df rows (already computed inside find_key_levels)
+    from key_levels import find_swing_highs_lows as _swings
+    df = _swings(df, left=swing_left, right=swing_right)
+    return df
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Step 7 – Display
 # ──────────────────────────────────────────────────────────────────────────────
@@ -673,6 +735,18 @@ def process(
             else:
                 bias_col = df["overall_bias"].iloc[-1] if "overall_bias" in df.columns else "N/A"
                 print(f"  No bias change — current: {bias_col}")
+
+            if interval in ("15m", "30m"):
+                df = attach_key_levels(
+                    df,
+                    sm         = sm,
+                    symbol     = symbol,
+                    n_levels   = 5,
+                    sr_method  = "fractal",  # swap to "cluster" or "pivot" as preferred
+                )
+                levels = df.attrs.get("key_levels", {})
+                if levels:
+                    print_key_levels(levels, symbol=symbol, interval=interval)
 
         # 7. Console summary
         print_summary(df, cdl_cols, symbol, interval)
