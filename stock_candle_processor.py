@@ -51,7 +51,6 @@ from key_levels import (
     find_key_levels,
     find_swing_highs_lows,
     find_support_resistance,
-    print_key_levels,
 )
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -533,52 +532,33 @@ def detect_bias_change(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def attach_key_levels(
-    df:        "pd.DataFrame",
-    sm         = None,
-    symbol:    str   = "",
-    n_levels:  int   = 3,
-    sr_method: str   = "fractal",   # "fractal" | "cluster" | "pivot"
+    df:          "pd.DataFrame",
+    sm           = None,
+    symbol:      str = "",
+    n_levels:    int = 2,
     swing_left:  int = 3,
     swing_right: int = 3,
 ) -> "pd.DataFrame":
     """
-    Computes all key price levels and attaches them to df.attrs['key_levels'].
-
-    Also adds two columns to df:
-        swing_high   — price at confirmed swing high pivot, NaN elsewhere
-        swing_low    — price at confirmed swing low  pivot, NaN elsewhere
-
-    The full dict of levels (session anchors + S/R + swings) is available via:
-        df.attrs['key_levels']
+    Computes the nearest 2 pivot S/R levels and 2 swing highs/lows around
+    the current price, and attaches them to df.attrs['key_levels'].
+    Also adds swing_high / swing_low columns to df.
 
     Parameters
     ──────────
-    df         : Enriched DataFrame from process() — must contain high/low/close columns
-    sm         : ServiceManager instance (pass None to skip session anchors)
-    symbol     : Ticker string (needed for session anchor fetch)
-    n_levels   : Max support / resistance levels to keep per side
-    sr_method  : Algorithm for S/R — "fractal", "cluster" (KMeans), or "pivot"
+    df          : Enriched DataFrame from process() — must have high/low/close columns
+    sm          : ServiceManager instance (None to skip session anchors)
+    symbol      : Ticker string (needed for session anchor fetch)
+    n_levels    : Pivot S/R and swing levels to keep per side (default 2)
     swing_left / swing_right : Pivot detection look-back / look-forward bar count
-
-    Returns
-    ───────
-    df with swing_high / swing_low columns added, and df.attrs['key_levels'] set.
-
-    Usage example
-    ─────────────
-    df = attach_key_levels(df, sm=sm, symbol="SPY", sr_method="cluster")
-    levels = df.attrs['key_levels']
-    print(f"Nearest support    : {levels['support'][0]:.2f}")
-    print(f"Nearest resistance : {levels['resistance'][0]:.2f}")
     """
     levels = find_key_levels(
-        df           = df,
-        sm           = sm,
-        symbol       = symbol,
-        n_levels     = n_levels,
-        sr_method    = sr_method,
-        swing_left   = swing_left,
-        swing_right  = swing_right,
+        df          = df,
+        sm          = sm,
+        symbol      = symbol,
+        n_levels    = n_levels,
+        swing_left  = swing_left,
+        swing_right = swing_right,
     )
     # Persist on the DataFrame so callers (e.g. build_combined_alert) can read them
     df.attrs["key_levels"] = levels
@@ -736,40 +716,9 @@ def process(
                 bias_col = df["overall_bias"].iloc[-1] if "overall_bias" in df.columns else "N/A"
                 print(f"  No bias change — current: {bias_col}")
 
-            if interval in ("15m", "30m"):
-                df = attach_key_levels(
-                    df,
-                    sm         = sm,
-                    symbol     = symbol,
-                    n_levels   = 5,
-                    sr_method  = "fractal",  # swap to "cluster" or "pivot" as preferred
-                )
-                levels = df.attrs.get("key_levels", {})
-                if levels:
-                    print_key_levels(levels, symbol=symbol, interval=interval)
-
         # 7. Console summary
         print_summary(df, cdl_cols, symbol, interval)
-
-        # 8. Optional CSV export
-        if save_csv:
-            base_cols = [
-                "rec_dt", "hour", "minute", "unixtime",
-                "open", "high", "low", "close",
-            ]
-            score_cols = []
-            if "MACD_12_26_9" in df.columns:
-                score_cols += ["MACD_12_26_9", "MACDh_12_26_9", "MACDs_12_26_9",
-                               "macd_score", "macd_bias"]
-            if "RSI_14" in df.columns:
-                score_cols += ["RSI_14", "rsi_score", "rsi_bias"]
-            label_cols  = ["candle_signal", "candle_group", "overall_bias", "bias_changed"]
-            save_cols   = [c for c in base_cols + score_cols + label_cols + cdl_cols
-                           if c in df.columns]
-            out = f"{symbol}_{interval}_analysis.csv"
-            df[save_cols].to_csv(out, index=False)
-            print(f"  Saved → {out}")
-
+        
         return df
 
     except Exception as exc:

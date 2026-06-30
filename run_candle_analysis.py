@@ -50,7 +50,7 @@ import time
 from datetime import datetime
 from gitalertmanager import AlertManager
 from dataManager import ServiceManager
-from stock_candle_processor import process
+from stock_candle_processor import ( process, attach_key_levels)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Run matrix
@@ -130,228 +130,43 @@ def _is_bearish(bias: str) -> bool:
 # NEW: Build directional targets block for Telegram
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _build_targets_block(symbol: str, mtf_direction: int, results: dict) -> list[str]:
+def _build_levels_line(symbol: str, results: dict) -> list[str]:
     """
-    Builds the price target lines for the Telegram alert.
-
-    mtf_direction :  1 = bullish flip detected
-                    -1 = bearish flip detected
-                     0 = no directional flip (skip targets)
-
-    Pulls key_levels from the 15m DataFrame (most granular intraday frame).
-    Falls back to 30m if 15m levels are unavailable.
-
-    Bullish layout:
-        🎯 Targets (resistance above):  R1 … R2 … R3
-        🛡 Stop guide (support below):  S1 … S2
-        📅 Session levels relevant to long bias
-
-    Bearish layout:
-        🎯 Targets (support below):     S1 … S2 … S3
-        🛡 Stop guide (resistance above): R1 … R2
-        📅 Session levels relevant to short bias
+    Returns up to 2 compact lines with the nearest S/R levels from the 15m frame.
+      S {nearest_support:.2f}  ►  {price:.2f}  ►  R {nearest_resistance:.2f}
+      PDH {pdh:.2f}  PDL {pdl:.2f}  OR30 {orl:.2f}–{orh:.2f}
     """
-    if mtf_direction == 0:
-        return []
-
-    # Prefer 15m levels; fall back to 30m
     kl = {}
     for iv in ("15m", "30m"):
         df_iv = results.get((symbol, iv))
         if df_iv is not None:
             kl = getattr(df_iv, "attrs", {}).get("key_levels", {})
             if kl:
-                kl["_source_interval"] = iv
                 break
-
     if not kl:
-        return []  # key_levels not computed (attach_key_levels not wired yet)
+        return []
 
-    price   = kl.get("current_price", 0.0)
-    sup     = kl.get("support",    [])   # already sorted descending (nearest first)
-    res     = kl.get("resistance", [])   # already sorted ascending  (nearest first)
-    src_iv  = kl.get("_source_interval", "15m")
+    price = kl.get("current_price", 0.0)
+    sup   = kl.get("support",    [])
+    res   = kl.get("resistance", [])
 
-    lines = ["", f"📌 Key Levels  [{src_iv} frame | price {price:.2f}]"]
-    sep   = "   " + "─" * 34
+    s_str = f"S {sup[0]:.2f}  " if sup else ""
+    r_str = f"  R {res[0]:.2f}" if res else ""
+    line1 = f"📌 {s_str}► {price:.2f}{r_str}"
 
-    if mtf_direction == 1:
-        # ── BULLISH: targets are resistance above, stops are support below ──
+    pdh = kl.get("prev_day_high")
+    pdl = kl.get("prev_day_low")
+    orh = kl.get("opening_range_high_30")
+    orl = kl.get("opening_range_low_30")
 
-        lines.append(sep)
-        lines.append("🎯 Upside Targets (resistance):")
-        if res:
-            for i, r in enumerate(res[:4], 1):
-                dist_pct = (r - price) / price * 100
-                lines.append(f"   R{i}  {r:.2f}   (+{dist_pct:.1f}%)")
-        else:
-            lines.append("   — no resistance levels found")
+    parts = []
+    if pdh and pdl:
+        parts.append(f"PDH {pdh:.2f}  PDL {pdl:.2f}")
+    if orh and orl:
+        parts.append(f"OR30 {orl:.2f}–{orh:.2f}")
+    line2 = ("📅 " + "  |  ".join(parts)) if parts else ""
 
-        lines.append(sep)
-        lines.append("🛡 Stop Guide (support below):")
-        if sup:
-            for i, s in enumerate(sup[:3], 1):
-                dist_pct = (price - s) / price * 100
-                lines.append(f"   S{i}  {s:.2f}   (-{dist_pct:.1f}%)")
-        else:
-            lines.append("   — no support levels found")
-
-        # Session anchors relevant to a LONG trade
-        lines.append(sep)
-        lines.append("📅 Session Anchors (long context):")
-        _append_bullish_session_lines(lines, kl, price)
-
-    else:
-        # ── BEARISH: targets are support below, stops are resistance above ──
-
-        lines.append(sep)
-        lines.append("🎯 Downside Targets (support):")
-        if sup:
-            for i, s in enumerate(sup[:4], 1):
-                dist_pct = (price - s) / price * 100
-                lines.append(f"   S{i}  {s:.2f}   (-{dist_pct:.1f}%)")
-        else:
-            lines.append("   — no support levels found")
-
-        lines.append(sep)
-        lines.append("🛡 Stop Guide (resistance above):")
-        if res:
-            for i, r in enumerate(res[:3], 1):
-                dist_pct = (r - price) / price * 100
-                lines.append(f"   R{i}  {r:.2f}   (+{dist_pct:.1f}%)")
-        else:
-            lines.append("   — no resistance levels found")
-
-        # Session anchors relevant to a SHORT trade
-        lines.append(sep)
-        lines.append("📅 Session Anchors (short context):")
-        _append_bearish_session_lines(lines, kl, price)
-
-    lines.append(sep)
-    return lines
-
-
-def _fmt_anchor(label: str, val: float | None, price: float, direction: str = "") -> str | None:
-    """
-    Format a single session anchor line.
-    direction: "above" | "below" | "" (no filter)
-    Returns None if val is missing or filtered out.
-    """
-    if val is None or val != val:   # None or NaN
-        return None
-    if direction == "above" and val <= price:
-        return None
-    if direction == "below" and val >= price:
-        return None
-    dist_pct = (val - price) / price * 100
-    sign = "+" if dist_pct >= 0 else ""
-    return f"   {label:<22} {val:.2f}  ({sign}{dist_pct:.1f}%)"
-
-
-def _append_bullish_session_lines(lines: list, kl: dict, price: float) -> None:
-    """
-    For a BULLISH signal, highlight session levels ABOVE price as breakout
-    targets and levels BELOW price as potential support / stops.
-    """
-    pdh   = kl.get("prev_day_high")
-    pdc   = kl.get("prev_day_close")
-    pdl   = kl.get("prev_day_low")
-    pmh   = kl.get("premarket_high")
-    pml   = kl.get("premarket_low")
-    orh15 = kl.get("opening_range_high_15")
-    orl15 = kl.get("opening_range_low_15")
-    orh30 = kl.get("opening_range_high_30")
-    orl30 = kl.get("opening_range_low_30")
-
-    # Above current price — potential breakout targets (most actionable for longs)
-    breakout_anchors = [
-        ("PDH  (breakout lvl)",  pdh,   "above"),
-        ("OR High 15m",          orh15, "above"),
-        ("OR High 30m",          orh30, "above"),
-        ("PM High",              pmh,   "above"),
-    ]
-    # Below current price — potential support / stop zones
-    support_anchors = [
-        ("PDC  (prior close)",   pdc,   "below"),
-        ("OR Low 15m",           orl15, "below"),
-        ("OR Low 30m",           orl30, "below"),
-        ("PM Low",               pml,   "below"),
-        ("PDL  (stop ref)",      pdl,   "below"),
-    ]
-
-    added = False
-    for label, val, direction in breakout_anchors:
-        line = _fmt_anchor(label, val, price, direction)
-        if line:
-            lines.append(line)
-            added = True
-
-    if not added:
-        lines.append("   (no session levels above price)")
-
-    lines.append("   — — — — — — — — — — — — — — — —")
-    lines.append("   Support / Stop zones below:")
-    any_stop = False
-    for label, val, direction in support_anchors:
-        line = _fmt_anchor(label, val, price, direction)
-        if line:
-            lines.append(line)
-            any_stop = True
-    if not any_stop:
-        lines.append("   (no session anchors below price)")
-
-
-def _append_bearish_session_lines(lines: list, kl: dict, price: float) -> None:
-    """
-    For a BEARISH signal, highlight session levels BELOW price as breakdown
-    targets and levels ABOVE price as potential resistance / stops.
-    """
-    pdh   = kl.get("prev_day_high")
-    pdc   = kl.get("prev_day_close")
-    pdl   = kl.get("prev_day_low")
-    pmh   = kl.get("premarket_high")
-    pml   = kl.get("premarket_low")
-    orh15 = kl.get("opening_range_high_15")
-    orl15 = kl.get("opening_range_low_15")
-    orh30 = kl.get("opening_range_high_30")
-    orl30 = kl.get("opening_range_low_30")
-
-    # Below current price — potential breakdown targets (most actionable for shorts)
-    breakdown_anchors = [
-        ("PDL  (breakdown lvl)", pdl,   "below"),
-        ("OR Low 15m",           orl15, "below"),
-        ("OR Low 30m",           orl30, "below"),
-        ("PM Low",               pml,   "below"),
-        ("PDC  (prior close)",   pdc,   "below"),
-    ]
-    # Above current price — resistance / stop zones
-    resistance_anchors = [
-        ("OR High 15m",          orh15, "above"),
-        ("OR High 30m",          orh30, "above"),
-        ("PM High",              pmh,   "above"),
-        ("PDH  (stop ref)",      pdh,   "above"),
-    ]
-
-    added = False
-    for label, val, direction in breakdown_anchors:
-        line = _fmt_anchor(label, val, price, direction)
-        if line:
-            lines.append(line)
-            added = True
-
-    if not added:
-        lines.append("   (no session levels below price)")
-
-    lines.append("   — — — — — — — — — — — — — — — —")
-    lines.append("   Resistance / Stop zones above:")
-    any_stop = False
-    for label, val, direction in resistance_anchors:
-        line = _fmt_anchor(label, val, price, direction)
-        if line:
-            lines.append(line)
-            any_stop = True
-    if not any_stop:
-        lines.append("   (no session anchors above price)")
+    return [line1] + ([line2] if line2 else [])
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -409,11 +224,9 @@ def build_combined_alert(
     flip_30_dir  = info_30["flag"]      if info_30 else 0
     bias_1h_cur  = info_1h["current_bias"] if info_1h else ""
 
-    mtf_flag      = ""
-    mtf_direction = 0   # 1=bullish, -1=bearish, 0=mixed/none — drives target block
+    mtf_flag = ""
 
     if flipped_15 and flipped_30 and flip_15_dir == flip_30_dir:
-        mtf_direction = flip_15_dir
         if flip_15_dir == 1:
             mtf_flag = "🔥 STRONG BULL — 15m & 30m both flipped Bullish"
         else:
@@ -421,25 +234,19 @@ def build_combined_alert(
 
     elif flipped_15:
         if flip_15_dir == 1 and "Bullish" in bias_1h_cur:
-            mtf_flag      = "✅ CONFIRMED BULL — 15m flipped Bullish, 1h trend Bullish"
-            mtf_direction = 1
+            mtf_flag = "✅ CONFIRMED BULL — 15m flipped Bullish, 1h trend Bullish"
         elif flip_15_dir == -1 and "Bearish" in bias_1h_cur:
-            mtf_flag      = "✅ CONFIRMED BEAR — 15m flipped Bearish, 1h trend Bearish"
-            mtf_direction = -1
+            mtf_flag = "✅ CONFIRMED BEAR — 15m flipped Bearish, 1h trend Bearish"
         else:
-            mtf_flag      = "⚠️  WEAK / MIXED — 15m flipped but other TFs not aligned"
-            mtf_direction = flip_15_dir   # still show targets, just weaker signal
+            mtf_flag = "⚠️  WEAK / MIXED — 15m flipped but other TFs not aligned"
 
     elif flipped_30:
         if flip_30_dir == 1 and "Bullish" in bias_1h_cur:
-            mtf_flag      = "✅ CONFIRMED BULL — 30m flipped Bullish, 1h trend Bullish"
-            mtf_direction = 1
+            mtf_flag = "✅ CONFIRMED BULL — 30m flipped Bullish, 1h trend Bullish"
         elif flip_30_dir == -1 and "Bearish" in bias_1h_cur:
-            mtf_flag      = "✅ CONFIRMED BEAR — 30m flipped Bearish, 1h trend Bearish"
-            mtf_direction = -1
+            mtf_flag = "✅ CONFIRMED BEAR — 30m flipped Bearish, 1h trend Bearish"
         else:
-            mtf_flag      = "⚠️  WEAK / MIXED — 30m flipped but other TFs not aligned"
-            mtf_direction = flip_30_dir
+            mtf_flag = "⚠️  WEAK / MIXED — 30m flipped but other TFs not aligned"
     
     # ── Build header + TF rows ────────────────────────────────────────────────
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -467,38 +274,50 @@ def build_combined_alert(
         lines.append("")
         lines.append(f"► MTF Agreement: {mtf_flag}")
 
-    # ── Directional targets block ─────────────────────────────────────────────
-    # Only appended when there is a clear bullish or bearish MTF direction.
-    # For WEAK/MIXED signals mtf_direction is still set from the flipping TF
-    # so targets are shown but the WEAK label above already caveats the signal.
-    target_lines = _build_targets_block(symbol, mtf_direction, results)
-    lines.extend(target_lines)
-    
-    df_15 = results.get((symbol, "15m"))
-    if df_15 is not None:
-        kl = getattr(df_15, "attrs", {}).get("key_levels", {})
-        if kl:
-            price = kl.get("current_price", 0)
-            sup   = kl.get("support",   [])
-            res   = kl.get("resistance", [])
-            lines.append("")
-            lines.append("📌 Key Levels (15m frame):")
-            if res: lines.append(f"   R  {res[0]:.2f}" + (f"  {res[1]:.2f}" if len(res) > 1 else ""))
-            lines.append(f"   ►  {price:.2f}  current")
-            if sup: lines.append(f"   S  {sup[0]:.2f}" + (f"  {sup[1]:.2f}" if len(sup) > 1 else ""))
-
-            # Session anchors
-            pdh = kl.get("prev_day_high")
-            pdl = kl.get("prev_day_low")
-            orh = kl.get("opening_range_high_15")
-            orl = kl.get("opening_range_low_15")
-            pmh = kl.get("premarket_high")
-            pml = kl.get("premarket_low")
-            if pdh: lines.append(f"   PDH {pdh:.2f}  PDL {pdl:.2f}")
-            if orh: lines.append(f"   OR  {orl:.2f} – {orh:.2f}")
-            if pmh: lines.append(f"   PM  {pml:.2f} – {pmh:.2f}")
+    # ── Compact key levels (2 lines max) ─────────────────────────────────────
+    lines.extend(_build_levels_line(symbol, results))
 
     return "\n".join(lines)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Pretty-print helper
+# ──────────────────────────────────────────────────────────────────────────────
+
+def print_key_levels(levels: dict, symbol: str = "", interval: str = "") -> None:
+    """
+    Formats and prints the dict returned by find_key_levels().
+    """
+    tag = f"{symbol} {interval}".strip()
+    sep = "─" * 60
+    print(f"\n{sep}")
+    print(f"  KEY LEVELS  |  {tag}  |  price={levels['current_price']:.2f}")
+    print(sep)
+
+    # Session anchors — one line per group
+    def _f(key):  # format a value or return 'n/a'
+        v = levels.get(key)
+        return f"{v:.2f}" if v is not None else "n/a"
+
+    print("  ── Session Anchors ──")
+    print(f"    Prev Day   L {_f('prev_day_low')}  H {_f('prev_day_high')}  C {_f('prev_day_close')}")
+    print(f"    Pre-Market L {_f('premarket_low')}  H {_f('premarket_high')}")
+    print(f"    OR 30m     L {_f('opening_range_low_30')}  H {_f('opening_range_high_30')}")
+
+    supports = sorted(levels.get("support", []))
+    resistances = sorted(levels.get("resistance", []), reverse=True)
+    sup_str = "  ".join(f"S {s:.2f}" for s in supports) if supports else "None"
+    res_str = "  ".join(f"R {r:.2f}" for r in resistances) if resistances else "None"
+    price_str = (f"C {levels['current_price']:.2f}")
+    print(f"Pivots:    {sup_str} : {res_str}")
+
+    # Swings
+    sh = sorted(levels.get("swing_highs", []), reverse=True)[:5]
+    sl = sorted(levels.get("swing_lows", []))[:5]
+    sh_str = "  ".join(f"H {h:.2f}" for h in sh) if sh else "None"
+    sl_str = "  ".join(f"L {l:.2f}" for l in sl) if sl else "None"
+    print(f"Swings:    {sl_str} : {sh_str}")
+    print(sep)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -517,6 +336,7 @@ def main() -> None:
 
     results: dict[tuple[str, str], object] = {}
     failed:  list[tuple[str, str]] = []
+    
 
     for idx, (symbol, interval, calc_macd, calc_rsi) in enumerate(RUN_MATRIX, 1):
         key = (symbol, interval)
@@ -543,7 +363,27 @@ def main() -> None:
         if idx < len(RUN_MATRIX):
             time.sleep(0.5)
 
-        gc.collect()
+    gc.collect()
+    
+    symbols_in_run = dict.fromkeys(sym for sym, *_ in RUN_MATRIX)
+
+    for symbol in symbols_in_run:
+        # Attach key levels using 15m if available (most granular)
+        df_30m = results.get((symbol, "30m"))
+        if df_30m is not None:
+            df_key = attach_key_levels(
+                df_30m,
+                sm       = sm,
+                symbol   = symbol,
+                n_levels = 2,
+            )
+            levels = df_key.attrs.get("key_levels", {})
+            if levels:
+                print_key_levels(levels, symbol=symbol, interval="30m")
+            else:
+                print(f"  {symbol} — no key levels available")
+        else:
+            print(f"  {symbol} — 30m data not available for key levels")
 
     # ── Combined multi-timeframe alert (DB-gated) ─────────────────────────────
     symbols_in_run = dict.fromkeys(sym for sym, *_ in RUN_MATRIX)

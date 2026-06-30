@@ -3,38 +3,25 @@ key_levels.py
 ─────────────
 Price-level identification for intraday trading targets.
 
-Provides two groups of functions:
-
   GROUP A — Session Anchors  (require raw 1-min or 5-min data from ServiceManager)
-  ─────────────────────────
   get_session_levels(sm, symbol)
       → prev_day_high, prev_day_low, prev_day_close (RTH)
         premarket_high, premarket_low
-        opening_range_high_15, opening_range_low_15  (first 15-min bar)
-        opening_range_high_30, opening_range_low_30  (first 30-min bar)
+        opening_range_high_30, opening_range_low_30  (9:30–10:00)
 
   GROUP B — Technical Levels  (operate on the enriched df from stock_candle_processor)
-  ──────────────────────────
   find_swing_highs_lows(df, left=3, right=3)
-      → df with columns: swing_high (price or NaN), swing_low (price or NaN)
+      → df with swing_high / swing_low columns (NaN where no pivot)
 
-  find_support_resistance(df, n_levels=5, tolerance=0.003, method="fractal")
-      → dict with keys: support (list[float]), resistance (list[float])
-        Each list is sorted and deduplicated within `tolerance` % of each other.
+  find_support_resistance(df, n_levels=2)
+      → dict: support (2 nearest below), resistance (2 nearest above)
+        Uses classic floor pivot points (P, R1/R2, S1/S2) from prior bar OHLC.
 
-  find_key_levels(df, sm=None, symbol=None, n_levels=5)
-      → Combined dict of all levels (session anchors + S/R + swings).
-        If sm/symbol are None, session anchors are skipped.
-
-Recommended Third-Party Libraries
-──────────────────────────────────
-  • pandas-ta-classic  (already installed) — pivot_points() for classic/woodie/camarilla
-  • scipy              — signal.argrelextrema() for robust local min/max detection
-  • mplfinance         — visualization of levels on candlestick charts
-  • scikit-learn       — KMeans clustering for S/R zone grouping (optional)
+  find_key_levels(df, sm=None, symbol=None, n_levels=2)
+      → Combined dict: session anchors + nearest 2 pivot S/R + nearest 2 swings.
 
 Install:
-    pip install scipy scikit-learn mplfinance
+    pip install scipy
 """
 
 from __future__ import annotations
@@ -56,14 +43,6 @@ except ImportError:
     _SCIPY_AVAILABLE = False
     print("[key_levels] scipy not found — falling back to fractal swing detection. "
           "Install with: pip install scipy")
-
-try:
-    from sklearn.cluster import KMeans
-    _SKLEARN_AVAILABLE = True
-except ImportError:
-    _SKLEARN_AVAILABLE = False
-    # KMeans clustering for S/R zones won't be available; fractal method used instead
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -104,10 +83,8 @@ def get_session_levels(sm, symbol: str) -> dict:
         "prev_day_close"       : float,   # last RTH close
         "premarket_high"       : float,
         "premarket_low"        : float,
-        "opening_range_high_15": float,   # high of 9:30–9:45 RTH window
-        "opening_range_low_15" : float,
         "opening_range_high_30": float,   # high of 9:30–10:00 RTH window
-        "opening_range_low_30" : float,
+        "opening_range_low_30" : float,   # low  of 9:30–10:00 RTH window
     }
 
     Notes
@@ -188,23 +165,15 @@ def get_session_levels(sm, symbol: str) -> dict:
     premarket_high = float(premarket["high"].max()) if not premarket.empty else float("nan")
     premarket_low  = float(premarket["low"].min())  if not premarket.empty else float("nan")
 
-    # ── Opening Range (current day RTH) ──────────────────────────────────────
-    rth_today = df[
+    # ── 30-minute Opening Range (current day RTH: 9:30–10:00) ─────────────
+    or_cutoff = dtime(10, 0)
+    rth_or = df[
         (df["bar_date"] == curr_day) &
         (df["bar_time"] >= RTH_OPEN) &
-        (df["bar_time"] < RTH_CLOSE)
-    ].sort_values("bar_time")
-
-    def _range_hl(bars: pd.DataFrame, minutes: int):
-        """Slice the first `minutes` of RTH bars."""
-        cutoff = (datetime.combine(datetime.today(), RTH_OPEN) + timedelta(minutes=minutes)).time()
-        window = bars[bars["bar_time"] < cutoff]
-        if window.empty:
-            return float("nan"), float("nan")
-        return float(window["high"].max()), float(window["low"].min())
-
-    or_high_15, or_low_15 = _range_hl(rth_today, 15)
-    or_high_30, or_low_30 = _range_hl(rth_today, 30)
+        (df["bar_time"] < or_cutoff)
+    ]
+    or_high_30 = float(rth_or["high"].max()) if not rth_or.empty else float("nan")
+    or_low_30  = float(rth_or["low"].min())  if not rth_or.empty else float("nan")
 
     return {
         "prev_day_high"        : prev_day_high,
@@ -212,8 +181,6 @@ def get_session_levels(sm, symbol: str) -> dict:
         "prev_day_close"       : prev_day_close,
         "premarket_high"       : premarket_high,
         "premarket_low"        : premarket_low,
-        "opening_range_high_15": or_high_15,
-        "opening_range_low_15" : or_low_15,
         "opening_range_high_30": or_high_30,
         "opening_range_low_30" : or_low_30,
     }
@@ -289,125 +256,20 @@ def find_swing_highs_lows(
 # ──────────────────────────────────────────────────────────────────────────────
 
 def find_support_resistance(
-    df:        pd.DataFrame,
-    n_levels:  int   = 5,
-    tolerance: float = 0.003,
-    method:    str   = "fractal",
+    df:       pd.DataFrame,
+    n_levels: int = 2,
 ) -> dict[str, list[float]]:
     """
-    Derives support and resistance price levels from the OHLCV data.
-
-    Parameters
-    ──────────
-    df         : DataFrame (ideally with swing_high / swing_low already added by
-                 find_swing_highs_lows; otherwise computed on-the-fly from H/L)
-    n_levels   : Maximum number of S/R levels to return per side
-    tolerance  : Price proximity threshold for merging nearby levels (0.003 = 0.3%)
-    method     : "fractal"  — use swing pivot points (default; always available)
-                 "cluster"  — KMeans cluster swing prices (requires scikit-learn)
-                 "pivot"    — Classic floor pivot points (P, R1-R3, S1-S3)
-                              using the prior bar's OHLC
+    Classic floor pivot points (P, R1/R2, S1/S2) from the prior bar's OHLC.
+    Returns the `n_levels` nearest levels each side of the current close.
 
     Returns
     ───────
-    {
-        "support"   : [float, ...],   # ascending, deduplicated
-        "resistance": [float, ...],   # ascending, deduplicated
-        "method"    : str,
-    }
+    {"support": [float, ...], "resistance": [float, ...], "method": "pivot"}
     """
-    close = df["close"].iloc[-1]
-    method = method.lower()
+    close = float(df["close"].iloc[-1])
+    return _pivot_levels(df, close, n_levels)
 
-    if method == "pivot":
-        return _pivot_levels(df, close, n_levels)
-
-    # ── Get swing prices (compute if not already in df) ───────────────────────
-    if "swing_high" not in df.columns or "swing_low" not in df.columns:
-        df = find_swing_highs_lows(df)
-
-    raw_highs = df["swing_high"].dropna().values.tolist()
-    raw_lows  = df["swing_low"].dropna().values.tolist()
-
-    if method == "cluster" and _SKLEARN_AVAILABLE:
-        support, resistance = _cluster_levels(
-            raw_lows, raw_highs, close, n_levels, tolerance
-        )
-    else:
-        if method == "cluster" and not _SKLEARN_AVAILABLE:
-            print("[key_levels] scikit-learn not available — falling back to fractal method. "
-                  "Install with: pip install scikit-learn")
-        support, resistance = _fractal_levels(
-            raw_lows, raw_highs, close, n_levels, tolerance
-        )
-
-    return {
-        "support"   : support,
-        "resistance": resistance,
-        "method"    : method if (method != "cluster" or _SKLEARN_AVAILABLE) else "fractal",
-    }
-
-
-def _dedup(prices: list[float], tolerance: float) -> list[float]:
-    """
-    Merge prices within `tolerance` % of each other into a single representative
-    (the mean of the cluster).  Input need not be sorted.
-    """
-    if not prices:
-        return []
-    prices = sorted(prices)
-    groups: list[list[float]] = [[prices[0]]]
-    for p in prices[1:]:
-        if abs(p - groups[-1][-1]) / max(groups[-1][-1], 1e-9) <= tolerance:
-            groups[-1].append(p)
-        else:
-            groups.append([p])
-    return [round(sum(g) / len(g), 4) for g in groups]
-
-
-def _fractal_levels(
-    raw_lows:  list[float],
-    raw_highs: list[float],
-    close:     float,
-    n_levels:  int,
-    tolerance: float,
-) -> tuple[list[float], list[float]]:
-    """Split swing prices into support (below close) and resistance (above close)."""
-    all_prices   = raw_lows + raw_highs
-    below        = [p for p in all_prices if p < close]
-    above        = [p for p in all_prices if p > close]
-
-    support      = sorted(_dedup(below, tolerance), reverse=True)[:n_levels]
-    resistance   = sorted(_dedup(above, tolerance))[:n_levels]
-    return support, resistance
-
-
-def _cluster_levels(
-    raw_lows:  list[float],
-    raw_highs: list[float],
-    close:     float,
-    n_levels:  int,
-    tolerance: float,
-) -> tuple[list[float], list[float]]:
-    """
-    KMeans clustering on swing prices.
-    Groups nearby prices into zones and returns the cluster centroids as levels.
-    More robust than fractal on noisy intraday data — picks the n_levels most
-    "agreed upon" prices across the full lookback window.
-    """
-    all_prices = np.array(raw_lows + raw_highs).reshape(-1, 1)
-    if len(all_prices) < n_levels * 2:
-        # Not enough data for clustering — fall back to fractal
-        return _fractal_levels(raw_lows, raw_highs, close, n_levels, tolerance)
-
-    k = min(n_levels * 2, len(all_prices))
-    km = KMeans(n_clusters=k, n_init="auto", random_state=42)
-    km.fit(all_prices)
-    centroids = sorted(float(c[0]) for c in km.cluster_centers_)
-
-    support    = sorted([p for p in centroids if p < close], reverse=True)[:n_levels]
-    resistance = sorted([p for p in centroids if p > close])[:n_levels]
-    return support, resistance
 
 
 def _pivot_levels(
@@ -449,69 +311,58 @@ def _pivot_levels(
 # ──────────────────────────────────────────────────────────────────────────────
 
 def find_key_levels(
-    df:       pd.DataFrame,
-    sm=None,
-    symbol:   Optional[str]  = None,
-    n_levels: int             = 5,
-    sr_method: str            = "fractal",
-    swing_left:  int          = 3,
-    swing_right: int          = 3,
-    tolerance:   float        = 0.003,
+    df:          pd.DataFrame,
+    sm           = None,
+    symbol:      Optional[str] = None,
+    n_levels:    int           = 2,
+    swing_left:  int           = 3,
+    swing_right: int           = 3,
 ) -> dict:
     """
-    Master function — returns all key levels in one dict.
+    Returns the nearest intraday-reachable key levels around the current price.
 
     Parameters
     ──────────
-    df         : Enriched DataFrame from stock_candle_processor.process()
-    sm         : ServiceManager instance (needed for session anchors; pass None to skip)
-    symbol     : Ticker string (needed for session anchors)
-    n_levels   : Max S/R levels per side
-    sr_method  : "fractal" | "cluster" | "pivot"
-    swing_left / swing_right : Fractal swing detection window
-    tolerance  : Dedup tolerance for S/R merging
+    df          : Enriched DataFrame from stock_candle_processor.process()
+    sm          : ServiceManager instance (needed for session anchors; None to skip)
+    symbol      : Ticker string (needed for session anchors)
+    n_levels    : Number of pivot S/R levels AND swing levels to keep per side (default 2)
+    swing_left / swing_right : Pivot detection look-back / look-forward bar count
 
     Returns
     ───────
     {
-        # Session anchors (empty if sm/symbol not provided)
         "prev_day_high"        : float | None,
         "prev_day_low"         : float | None,
         "prev_day_close"       : float | None,
         "premarket_high"       : float | None,
         "premarket_low"        : float | None,
-        "opening_range_high_15": float | None,
-        "opening_range_low_15" : float | None,
         "opening_range_high_30": float | None,
         "opening_range_low_30" : float | None,
-
-        # Technical levels
-        "support"              : list[float],
-        "resistance"           : list[float],
-        "swing_highs"          : list[float],   # confirmed swing highs
-        "swing_lows"           : list[float],   # confirmed swing lows
-
-        # Meta
-        "sr_method"            : str,
+        "support"              : list[float],   # n_levels nearest pivot S below price
+        "resistance"           : list[float],   # n_levels nearest pivot R above price
+        "swing_highs"          : list[float],   # n_levels nearest confirmed swing highs above price
+        "swing_lows"           : list[float],   # n_levels nearest confirmed swing lows below price
+        "sr_method"            : "pivot",
         "current_price"        : float,
     }
     """
+    close = float(df["close"].iloc[-1])
+
     result: dict = {
         "prev_day_high"        : None,
         "prev_day_low"         : None,
         "prev_day_close"       : None,
         "premarket_high"       : None,
         "premarket_low"        : None,
-        "opening_range_high_15": None,
-        "opening_range_low_15" : None,
         "opening_range_high_30": None,
         "opening_range_low_30" : None,
         "support"              : [],
         "resistance"           : [],
         "swing_highs"          : [],
         "swing_lows"           : [],
-        "sr_method"            : sr_method,
-        "current_price"        : float(df["close"].iloc[-1]),
+        "sr_method"            : "pivot",
+        "current_price"        : close,
     }
 
     # ── Session anchors ────────────────────────────────────────────────────────
@@ -522,76 +373,20 @@ def find_key_levels(
         except Exception as e:
             print(f"[key_levels] Session levels unavailable: {e}")
 
-    # ── Swings ─────────────────────────────────────────────────────────────────
-    df = find_swing_highs_lows(df, left=swing_left, right=swing_right)
-    result["swing_highs"] = df["swing_high"].dropna().tolist()
-    result["swing_lows"]  = df["swing_low"].dropna().tolist()
-
-    # ── S/R ────────────────────────────────────────────────────────────────────
-    sr = find_support_resistance(
-        df,
-        n_levels  = n_levels,
-        tolerance = tolerance,
-        method    = sr_method,
-    )
-    result["support"]   = sr["support"]
+    # ── Pivot S/R — nearest n_levels each side ────────────────────────────────
+    sr = find_support_resistance(df, n_levels=n_levels)
+    result["support"]    = sr["support"]
     result["resistance"] = sr["resistance"]
-    result["sr_method"] = sr["method"]
+
+    # ── Swings — nearest n_levels above and below current price ───────────────
+    df = find_swing_highs_lows(df, left=swing_left, right=swing_right)
+
+    all_swing_highs = sorted(df["swing_high"].dropna().tolist())
+    all_swing_lows  = sorted(df["swing_low"].dropna().tolist())
+
+    # nearest n_levels swing highs ABOVE price (ascending — closest first)
+    result["swing_highs"] = [p for p in all_swing_highs if p > close][:n_levels]
+    # nearest n_levels swing lows BELOW price (descending — closest first)
+    result["swing_lows"]  = sorted([p for p in all_swing_lows if p < close], reverse=True)[:n_levels]
 
     return result
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Pretty-print helper
-# ──────────────────────────────────────────────────────────────────────────────
-
-def print_key_levels(levels: dict, symbol: str = "", interval: str = "") -> None:
-    """
-    Formats and prints the dict returned by find_key_levels().
-    """
-    tag = f"{symbol} {interval}".strip()
-    sep = "─" * 60
-    print(f"\n{sep}")
-    print(f"  KEY LEVELS  |  {tag}  |  price={levels['current_price']:.2f}")
-    print(sep)
-
-    # Session anchors
-    anchor_keys = [
-        ("prev_day_high",         "Prev Day High"),
-        ("prev_day_low",          "Prev Day Low"),
-        ("prev_day_close",        "Prev Day RTH Close"),
-        ("premarket_high",        "Pre-Market High"),
-        ("premarket_low",         "Pre-Market Low"),
-        ("opening_range_high_15", "OR High (15m)"),
-        ("opening_range_low_15",  "OR Low  (15m)"),
-        ("opening_range_high_30", "OR High (30m)"),
-        ("opening_range_low_30",  "OR Low  (30m)"),
-    ]
-    print("  ── Session Anchors ──")
-    for key, label in anchor_keys:
-        val = levels.get(key)
-        print(f"    {label:<26} {val:.4f}" if val is not None else f"    {label:<26} n/a")
-
-    # Resistance
-    print(f"\n  ── Resistance ({levels['sr_method']}) ──")
-    for r in sorted(levels.get("resistance", []), reverse=True):
-        print(f"    R  {r:.4f}")
-
-    # Current price
-    print(f"    ►  {levels['current_price']:.4f}  ◄ current")
-
-    # Support
-    print(f"  ── Support ({levels['sr_method']}) ──")
-    for s in levels.get("support", []):
-        print(f"    S  {s:.4f}")
-
-    # Swings
-    sh = sorted(levels.get("swing_highs", []), reverse=True)[:5]
-    sl = sorted(levels.get("swing_lows", []))[:5]
-    print(f"\n  ── Recent Swing Highs (top 5) ──")
-    for p in sh:
-        print(f"    ▲  {p:.4f}")
-    print(f"  ── Recent Swing Lows (top 5) ──")
-    for p in sl:
-        print(f"    ▼  {p:.4f}")
-    print(sep)
