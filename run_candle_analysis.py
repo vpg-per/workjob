@@ -48,6 +48,7 @@ import gc
 import sys
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from gitalertmanager import AlertManager
 from dataManager import ServiceManager
 from stock_candle_processor import ( process, attach_key_levels)
@@ -59,16 +60,16 @@ RUN_MATRIX: list[tuple[str, str, bool, bool]] = [
     # symbol   interval   calc_macd  calc_rsi
     ("SPY",   "15m",     True,      True),
     ("SPY",   "30m",     True,      True),
-    ("SPY",   "1h",      False,     False),
-    ("IWM",   "15m",     True,      True),
-    ("IWM",   "30m",     True,      True),
-    ("IWM",   "1h",      False,     False),
+    ("SPY",   "1h",      True,     True),
     ("QQQ",   "15m",     True,      True),
     ("QQQ",   "30m",     True,      True),
-    ("QQQ",   "1h",      False,     False),
+    ("QQQ",   "1h",      True,     True),
+    ("IWM",   "15m",     True,      True),
+    ("IWM",   "30m",     True,      True),
+    ("IWM",   "1h",      True,     True),
     ("GLD",   "15m",     True,      True),
     ("GLD",   "30m",     True,      True),
-    ("GLD",   "1h",      False,     False),
+    ("GLD",   "1h",      True,     True),
 ]
 
 INCLUDE_4H = False
@@ -249,7 +250,8 @@ def build_combined_alert(
             mtf_flag = "⚠️  WEAK / MIXED — 30m flipped but other TFs not aligned"
     
     # ── Build header + TF rows ────────────────────────────────────────────────
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    est_now = datetime.now(ZoneInfo("America/New_York"))
+    now_str = est_now.strftime("%Y-%m-%d %H:%M:%S")
     lines = [
         f"📊 {symbol} — Bias Change Alert",
         f"🕐 {now_str}",
