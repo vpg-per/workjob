@@ -235,19 +235,15 @@ def build_combined_alert(
 
     elif flipped_15:
         if flip_15_dir == 1 and "Bullish" in bias_1h_cur:
-            mtf_flag = "✅ CONFIRMED BULL — 15m flipped Bullish, 1h trend Bullish"
+            mtf_flag = "✅ BULL — 15m flipped Bullish, 1h trend Bullish"
         elif flip_15_dir == -1 and "Bearish" in bias_1h_cur:
-            mtf_flag = "✅ CONFIRMED BEAR — 15m flipped Bearish, 1h trend Bearish"
-        else:
-            mtf_flag = "⚠️  WEAK / MIXED — 15m flipped but other TFs not aligned"
+            mtf_flag = "✅ BEAR — 15m flipped Bearish, 1h trend Bearish"
 
     elif flipped_30:
         if flip_30_dir == 1 and "Bullish" in bias_1h_cur:
-            mtf_flag = "✅ CONFIRMED BULL — 30m flipped Bullish, 1h trend Bullish"
+            mtf_flag = "✅ BULL — 30m flipped Bullish, 1h trend Bullish"
         elif flip_30_dir == -1 and "Bearish" in bias_1h_cur:
-            mtf_flag = "✅ CONFIRMED BEAR — 30m flipped Bearish, 1h trend Bearish"
-        else:
-            mtf_flag = "⚠️  WEAK / MIXED — 30m flipped but other TFs not aligned"
+            mtf_flag = "✅ BEAR — 30m flipped Bearish, 1h trend Bearish"
     
     # ── Build header + TF rows ────────────────────────────────────────────────
     est_now = datetime.now(ZoneInfo("America/New_York"))
