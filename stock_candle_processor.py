@@ -123,13 +123,13 @@ ALL_PATTERNS: list[str] = (
 
 # CDL column → (bullish label, bearish label)
 _LABEL_MAP: dict[str, tuple[str, str]] = {
-    "CDL_HAMMER":          ("Hammer ↑",           "Hammer ↑"),
+    #"CDL_HAMMER":          ("Hammer ↑",           "Hammer ↑"),
     "CDL_INVERTEDHAMMER":  ("Inv. Hammer ↑",       "Inv. Hammer ↑"),
     "CDL_SHOOTINGSTAR":    ("Shooting Star ↓",     "Shooting Star ↓"),
     "CDL_HANGINGMAN":      ("Hanging Man ↓",       "Hanging Man ↓"),
-    "CDL_DOJI":            ("Doji ↔",              "Doji ↔"),
-    "CDL_DRAGONFLYDOJI":   ("Dragonfly Doji ↑",    "Dragonfly Doji ↑"),
-    "CDL_GRAVESTONEDOJI":  ("Gravestone Doji ↓",   "Gravestone Doji ↓"),
+    #"CDL_DOJI":            ("Doji ↔",              "Doji ↔"),
+    #"CDL_DRAGONFLYDOJI":   ("Dragonfly Doji ↑",    "Dragonfly Doji ↑"),
+    #"CDL_GRAVESTONEDOJI":  ("Gravestone Doji ↓",   "Gravestone Doji ↓"),
     "CDL_MARUBOZU":        ("Bull Marubozu ↑",     "Bear Marubozu ↓"),
     "CDL_SPINNINGTOP":     ("Spinning Top ↔",      "Spinning Top ↔"),
     "CDL_ENGULFING":       ("Bull Engulfing ↑",    "Bear Engulfing ↓"),
@@ -137,8 +137,8 @@ _LABEL_MAP: dict[str, tuple[str, str]] = {
     "CDL_HARAMICROSS":     ("Harami Cross ↑",      "Harami Cross ↓"),
     "CDL_DARKCLOUDCOVER":  ("Dark Cloud Cover ↓",  "Dark Cloud Cover ↓"),
     "CDL_PIERCING":        ("Piercing Line ↑",     "Piercing Line ↑"),
-    "CDL_COUNTERATTACK":   ("Counterattack ↑",     "Counterattack ↓"),
-    "CDL_BELTHOLD":        ("Belt Hold ↑",         "Belt Hold ↓"),
+    #"CDL_COUNTERATTACK":   ("Counterattack ↑",     "Counterattack ↓"),
+    #"CDL_BELTHOLD":        ("Belt Hold ↑",         "Belt Hold ↓"),
     "CDL_MORNINGSTAR":     ("Morning Star ↑",      "Morning Star ↑"),
     "CDL_EVENINGSTAR":     ("Evening Star ↓",      "Evening Star ↓"),
     "CDL_MORNINGDOJISTAR": ("Morn. Doji Star ↑",   "Morn. Doji Star ↑"),

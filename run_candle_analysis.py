@@ -292,7 +292,7 @@ def print_key_levels(levels: dict, symbol: str = "", interval: str = "") -> None
         print(f"    OR 30m     L {_f('opening_range_low_30')}  H {_f('opening_range_high_30')}")
 
     supports = sorted(levels.get("support", []))
-    resistances = sorted(levels.get("resistance", []), reverse=True)
+    resistances = sorted(levels.get("resistance", []))
     sup_str = "  ".join(f"S {s:.2f}" for s in supports) if supports else "None"
     res_str = "  ".join(f"R {r:.2f}" for r in resistances) if resistances else "None"
     price_str = (f"C {levels['current_price']:.2f}")
@@ -439,6 +439,7 @@ def main() -> None:
     if failed:
         print(f"  Failed    : {[f'{s} {i}' for s, i in failed]}")
     print(f"{'═'*70}\n")
+    gc.collect()
 
 
 if __name__ == "__main__":

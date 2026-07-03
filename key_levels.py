@@ -280,9 +280,8 @@ def find_key_levels(
                     if val is not None
                 ]
                 pivot_valarr = sorted(pivot_vals)
-                lowers = sorted([val for val in pivot_valarr if val < close])
-                result["support"] = lowers[-3:]
-                result["resistance"] = sorted([val for val in pivot_valarr if val > close])[:3]
+                result["support"] = sorted(list(set([val for val in pivot_valarr if val < close])))[-3:]
+                result["resistance"] = sorted(list(set(val for val in pivot_valarr if val > close)))[:3]
                 result["prev_day_high"]=result["prev_day_low"]=result["premarket_high"]=result["premarket_low"]= \
                     result["opening_range_high_30"]=result["opening_range_low_30"]=float("nan")
 
