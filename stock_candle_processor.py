@@ -47,11 +47,6 @@ import numpy as np
 import pandas as pd
 import pandas_ta_classic as ta
 from dataManager import ServiceManager
-from key_levels import (
-    find_key_levels,
-    find_swing_highs_lows,
-    find_support_resistance,
-)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -529,45 +524,6 @@ def detect_bias_change(df: pd.DataFrame) -> pd.DataFrame:
         "rec_dt":     str(last_row.get("rec_dt", "")),
     }
     return df
-
-
-def attach_key_levels(
-    df:          "pd.DataFrame",
-    sm           = None,
-    symbol:      str = "",
-    n_levels:    int = 2,
-    swing_left:  int = 3,
-    swing_right: int = 3,
-) -> "pd.DataFrame":
-    """
-    Computes the nearest 2 pivot S/R levels and 2 swing highs/lows around
-    the current price, and attaches them to df.attrs['key_levels'].
-    Also adds swing_high / swing_low columns to df.
-
-    Parameters
-    ──────────
-    df          : Enriched DataFrame from process() — must have high/low/close columns
-    sm          : ServiceManager instance (None to skip session anchors)
-    symbol      : Ticker string (needed for session anchor fetch)
-    n_levels    : Pivot S/R and swing levels to keep per side (default 2)
-    swing_left / swing_right : Pivot detection look-back / look-forward bar count
-    """
-    levels = find_key_levels(
-        df          = df,
-        sm          = sm,
-        symbol      = symbol,
-        n_levels    = n_levels,
-        swing_left  = swing_left,
-        swing_right = swing_right,
-    )
-    # Persist on the DataFrame so callers (e.g. build_combined_alert) can read them
-    df.attrs["key_levels"] = levels
-
-    # Add swing columns to df rows (already computed inside find_key_levels)
-    from key_levels import find_swing_highs_lows as _swings
-    df = _swings(df, left=swing_left, right=swing_right)
-    return df
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Step 7 – Display

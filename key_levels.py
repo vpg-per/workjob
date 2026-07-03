@@ -1,41 +1,16 @@
-"""
-key_levels.py
-─────────────
-Price-level identification for intraday trading targets.
-
-  GROUP A — Session Anchors  (require raw 1-min or 5-min data from ServiceManager)
-  get_session_levels(sm, symbol)
-      → prev_day_high, prev_day_low, prev_day_close (RTH)
-        premarket_high, premarket_low
-        opening_range_high_30, opening_range_low_30  (9:30–10:00)
-
-  GROUP B — Technical Levels  (operate on the enriched df from stock_candle_processor)
-  find_swing_highs_lows(df, left=3, right=3)
-      → df with swing_high / swing_low columns (NaN where no pivot)
-
-  find_support_resistance(df, n_levels=2)
-      → dict: support (2 nearest below), resistance (2 nearest above)
-        Uses classic floor pivot points (P, R1/R2, S1/S2) from prior bar OHLC.
-
-  find_key_levels(df, sm=None, symbol=None, n_levels=2)
-      → Combined dict: session anchors + nearest 2 pivot S/R + nearest 2 swings.
-
-Install:
-    pip install scipy
-"""
 
 from __future__ import annotations
 
 import warnings
 from datetime import datetime, timedelta, time as dtime
 from typing import Optional
-
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-# ── Optional imports (degrade gracefully if not installed) ─────────────────────
 try:
     from scipy.signal import argrelextrema
     _SCIPY_AVAILABLE = True
@@ -71,30 +46,7 @@ def _parse_bar_time(row: pd.Series) -> dtime:
 
 
 def get_session_levels(sm, symbol: str) -> dict:
-    """
-    Fetches a 5-day window of 5-minute bars (pre/post market included) and
-    extracts the following levels for the MOST RECENTLY COMPLETED trading day:
 
-    Returns
-    ───────
-    {
-        "prev_day_high"        : float,
-        "prev_day_low"         : float,
-        "prev_day_close"       : float,   # last RTH close
-        "premarket_high"       : float,
-        "premarket_low"        : float,
-        "opening_range_high_30": float,   # high of 9:30–10:00 RTH window
-        "opening_range_low_30" : float,   # low  of 9:30–10:00 RTH window
-    }
-
-    Notes
-    ─────
-    • Uses 5-min bars so the opening range uses 3 bars (15m) or 6 bars (30m).
-    • "Previous day" = the last date that has RTH data before today's RTH session.
-    • Pre-market = bars where bar_time >= PRE_OPEN and bar_time < RTH_OPEN
-      on the CURRENT trading date.
-    • Opening range = first N minutes of the CURRENT RTH session.
-    """
     from datetime import date as _date
 
     # ── Fetch 5-day window of 5-minute bars ──────────────────────────────────
@@ -195,27 +147,6 @@ def find_swing_highs_lows(
     left:  int = 3,
     right: int = 3,
 ) -> pd.DataFrame:
-    """
-    Identifies pivot swing highs and lows on the close or high/low series.
-
-    Two methods are tried in order:
-      1. scipy.signal.argrelextrema (preferred — more reliable)
-      2. Fractal / Williams pivot (fallback — no scipy required)
-
-    Parameters
-    ──────────
-    df    : Enriched DataFrame from stock_candle_processor.process()
-    left  : Number of bars to the LEFT that must be lower (swing high) / higher (swing low)
-    right : Number of bars to the RIGHT (look-forward — will be NaN on last `right` bars)
-
-    Adds columns
-    ────────────
-    swing_high : price at confirmed swing high, NaN elsewhere
-    swing_low  : price at confirmed swing low,  NaN elsewhere
-
-    Note: The last `right` bars cannot be confirmed yet (no right-side data).
-    In live trading, only use rows where swing_high / swing_low is not NaN.
-    """
     df = df.copy()
     highs  = df["high"].values.astype("float64")
     lows   = df["low"].values.astype("float64")
@@ -277,14 +208,6 @@ def _pivot_levels(
     close:    float,
     n_levels: int,
 ) -> dict[str, list[float]]:
-    """
-    Classic floor trader pivot points using the previous bar's OHLC.
-    Returns up to n_levels support / resistance levels.
-
-    P  = (H + L + C) / 3
-    R1 = 2P − L,  R2 = P + (H − L),  R3 = H + 2(P − L)
-    S1 = 2P − H,  S2 = P − (H − L),  S3 = L − 2(H − P)
-    """
     if len(df) < 2:
         return {"support": [], "resistance": [], "method": "pivot"}
 
@@ -318,35 +241,6 @@ def find_key_levels(
     swing_left:  int           = 3,
     swing_right: int           = 3,
 ) -> dict:
-    """
-    Returns the nearest intraday-reachable key levels around the current price.
-
-    Parameters
-    ──────────
-    df          : Enriched DataFrame from stock_candle_processor.process()
-    sm          : ServiceManager instance (needed for session anchors; None to skip)
-    symbol      : Ticker string (needed for session anchors)
-    n_levels    : Number of pivot S/R levels AND swing levels to keep per side (default 2)
-    swing_left / swing_right : Pivot detection look-back / look-forward bar count
-
-    Returns
-    ───────
-    {
-        "prev_day_high"        : float | None,
-        "prev_day_low"         : float | None,
-        "prev_day_close"       : float | None,
-        "premarket_high"       : float | None,
-        "premarket_low"        : float | None,
-        "opening_range_high_30": float | None,
-        "opening_range_low_30" : float | None,
-        "support"              : list[float],   # n_levels nearest pivot S below price
-        "resistance"           : list[float],   # n_levels nearest pivot R above price
-        "swing_highs"          : list[float],   # n_levels nearest confirmed swing highs above price
-        "swing_lows"           : list[float],   # n_levels nearest confirmed swing lows below price
-        "sr_method"            : "pivot",
-        "current_price"        : float,
-    }
-    """
     close = float(df["close"].iloc[-1])
 
     result: dict = {
@@ -370,23 +264,68 @@ def find_key_levels(
         try:
             session = get_session_levels(sm, symbol)
             result.update(session)
+
+            est_now = datetime.now(ZoneInfo("America/New_York"))
+            now_str = est_now.strftime("%H:%M")
+            if est_now.hour > 11:
+                pivot_vals = [
+                    val for val in [
+                        result["prev_day_high"], 
+                        result["prev_day_low"], 
+                        result["premarket_high"], 
+                        result["premarket_low"], 
+                        result["opening_range_high_30"], 
+                        result["opening_range_low_30"]
+                    ] 
+                    if val is not None
+                ]
+                pivot_valarr = sorted(pivot_vals)
+                lowers = sorted([val for val in pivot_valarr if val < close])
+                result["support"] = lowers[-3:]
+                result["resistance"] = sorted([val for val in pivot_valarr if val > close])[:3]
+                result["prev_day_high"]=result["prev_day_low"]=result["premarket_high"]=result["premarket_low"]= \
+                    result["opening_range_high_30"]=result["opening_range_low_30"]=float("nan")
+
         except Exception as e:
             print(f"[key_levels] Session levels unavailable: {e}")
 
-    # ── Pivot S/R — nearest n_levels each side ────────────────────────────────
-    sr = find_support_resistance(df, n_levels=n_levels)
-    result["support"]    = sr["support"]
-    result["resistance"] = sr["resistance"]
+    # # ── Pivot S/R — nearest n_levels each side ────────────────────────────────
+    # sr = find_support_resistance(df, n_levels=n_levels)
+    # result["support"]    = sr["support"]
+    # result["resistance"] = sr["resistance"]
 
-    # ── Swings — nearest n_levels above and below current price ───────────────
-    df = find_swing_highs_lows(df, left=swing_left, right=swing_right)
+    # # ── Swings — nearest n_levels above and below current price ───────────────
+    # df = find_swing_highs_lows(df, left=swing_left, right=swing_right)
 
-    all_swing_highs = sorted(df["swing_high"].dropna().tolist())
-    all_swing_lows  = sorted(df["swing_low"].dropna().tolist())
+    # all_swing_highs = sorted(df["swing_high"].dropna().tolist())
+    # all_swing_lows  = sorted(df["swing_low"].dropna().tolist())
 
-    # nearest n_levels swing highs ABOVE price (ascending — closest first)
-    result["swing_highs"] = [p for p in all_swing_highs if p > close][:n_levels]
-    # nearest n_levels swing lows BELOW price (descending — closest first)
-    result["swing_lows"]  = sorted([p for p in all_swing_lows if p < close], reverse=True)[:n_levels]
+    # # nearest n_levels swing highs ABOVE price (ascending — closest first)
+    # result["swing_highs"] = [p for p in all_swing_highs if p > close][:n_levels]
+    # # nearest n_levels swing lows BELOW price (descending — closest first)
+    # result["swing_lows"]  = sorted([p for p in all_swing_lows if p < close], reverse=True)[:n_levels]
 
     return result
+
+
+def attach_key_levels(
+    df:          "pd.DataFrame",
+    sm           = None,
+    symbol:      str = "",
+    n_levels:    int = 2,
+    swing_left:  int = 3,
+    swing_right: int = 3,
+) -> "pd.DataFrame":
+    levels = find_key_levels(
+        df          = df,
+        sm          = sm,
+        symbol      = symbol,
+        n_levels    = n_levels,
+        swing_left  = swing_left,
+        swing_right = swing_right,
+    )
+    # Persist on the DataFrame so callers (e.g. build_combined_alert) can read them
+    df.attrs["key_levels"] = levels
+
+    #df = find_swing_highs_lows(df, left=swing_left, right=swing_right)
+    return df

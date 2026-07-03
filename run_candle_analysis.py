@@ -47,11 +47,14 @@ import os
 import gc
 import sys
 import time
+import math
+import argparse
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from gitalertmanager import AlertManager
 from dataManager import ServiceManager
-from stock_candle_processor import ( process, attach_key_levels)
+from stock_candle_processor import ( process)
+from key_levels import ( attach_key_levels )
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Run matrix
@@ -61,22 +64,7 @@ RUN_MATRIX: list[tuple[str, str, bool, bool]] = [
     ("SPY",   "15m",     True,      True),
     ("SPY",   "30m",     True,      True),
     ("SPY",   "1h",      True,     True),
-    ("QQQ",   "15m",     True,      True),
-    ("QQQ",   "30m",     True,      True),
-    ("QQQ",   "1h",      True,     True),
-    ("IWM",   "15m",     True,      True),
-    ("IWM",   "30m",     True,      True),
-    ("IWM",   "1h",      True,     True),
-    ("GLD",   "15m",     True,      True),
-    ("GLD",   "30m",     True,      True),
-    ("GLD",   "1h",      True,     True),
 ]
-
-INCLUDE_4H = False
-if INCLUDE_4H:
-    for sym in ("SPY", "QQQ", "IWM", "GLD"):
-        RUN_MATRIX.append((sym, "4h", False, False))
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -151,25 +139,28 @@ def _build_levels_line(symbol: str, results: dict) -> list[str]:
     sup   = kl.get("support",    [])
     res   = kl.get("resistance", [])
 
-    s_str = f"S {sup[0]:.2f}  " if sup else ""
+    s_str = f"S {sup[len(sup)-1]:.2f}  " if sup else ""
     r_str = f"  R {res[0]:.2f}" if res else ""
     line1 = f"📌 {s_str}► {price:.2f}{r_str}"
 
     pdh = kl.get("prev_day_high")
     pdl = kl.get("prev_day_low")
+    pmh = kl.get("premarket_high")
+    pml = kl.get("premarket_low")
     orh = kl.get("opening_range_high_30")
     orl = kl.get("opening_range_low_30")
 
     parts = []
-    if pdh and pdl:
-        parts.append(f"PDH {pdh:.2f}  PDL {pdl:.2f}")
-    if orh and orl:
+    if not math.isnan(pdl) and not math.isnan(pdh):
+        parts.append(f"PD {pdl:.2f}–{pdh:.2f}")
+    if not math.isnan(pml) and not math.isnan(pmh):
+        parts.append(f"PM {pml:.2f}–{pmh:.2f}")
+    if not math.isnan(orl) and not math.isnan(orh):
         parts.append(f"OR30 {orl:.2f}–{orh:.2f}")
     line2 = ("📅 " + "  |  ".join(parts)) if parts else ""
 
     return [line1] + ([line2] if line2 else [])
-
-
+    
 # ──────────────────────────────────────────────────────────────────────────────
 # Updated: build_combined_alert — now includes directional targets
 # ──────────────────────────────────────────────────────────────────────────────
@@ -247,10 +238,9 @@ def build_combined_alert(
     
     # ── Build header + TF rows ────────────────────────────────────────────────
     est_now = datetime.now(ZoneInfo("America/New_York"))
-    now_str = est_now.strftime("%Y-%m-%d %H:%M:%S")
+    now_str = est_now.strftime("%H:%M")
     lines = [
-        f"📊 {symbol} — Bias Change Alert",
-        f"🕐 {now_str}",
+        f"📊 {symbol} -{now_str} — Bias {mtf_flag if mtf_flag else 'update'}",
         "",
     ]
 
@@ -267,11 +257,7 @@ def build_combined_alert(
             )
         else:
             lines.append(f"{em} {interval:>3s}  No change  [current: {cur}]")
-
-    if mtf_flag:
-        lines.append("")
-        lines.append(f"► MTF Agreement: {mtf_flag}")
-
+    lines.append("")
     # ── Compact key levels (2 lines max) ─────────────────────────────────────
     lines.extend(_build_levels_line(symbol, results))
 
@@ -298,9 +284,12 @@ def print_key_levels(levels: dict, symbol: str = "", interval: str = "") -> None
         return f"{v:.2f}" if v is not None else "n/a"
 
     print("  ── Session Anchors ──")
-    print(f"    Prev Day   L {_f('prev_day_low')}  H {_f('prev_day_high')}  C {_f('prev_day_close')}")
-    print(f"    Pre-Market L {_f('premarket_low')}  H {_f('premarket_high')}")
-    print(f"    OR 30m     L {_f('opening_range_low_30')}  H {_f('opening_range_high_30')}")
+    if (_f('prev_day_low') != "nan" and _f('prev_day_high') != "nan"):
+        print(f"    Prev Day   L {_f('prev_day_low')}  H {_f('prev_day_high')}  C {_f('prev_day_close')}")
+    if (_f('premarket_low') != "nan" and _f('premarket_high') != "nan"):
+        print(f"    Pre-Market L {_f('premarket_low')}  H {_f('premarket_high')}")
+    if (_f('opening_range_low_30') != "nan" and _f('opening_range_high_30') != "nan"):
+        print(f"    OR 30m     L {_f('opening_range_low_30')}  H {_f('opening_range_high_30')}")
 
     supports = sorted(levels.get("support", []))
     resistances = sorted(levels.get("resistance", []), reverse=True)
@@ -310,11 +299,11 @@ def print_key_levels(levels: dict, symbol: str = "", interval: str = "") -> None
     print(f"Pivots:    {sup_str} : {res_str}")
 
     # Swings
-    sh = sorted(levels.get("swing_highs", []), reverse=True)[:5]
-    sl = sorted(levels.get("swing_lows", []))[:5]
-    sh_str = "  ".join(f"H {h:.2f}" for h in sh) if sh else "None"
-    sl_str = "  ".join(f"L {l:.2f}" for l in sl) if sl else "None"
-    print(f"Swings:    {sl_str} : {sh_str}")
+    # sh = sorted(levels.get("swing_highs", []), reverse=True)[:5]
+    # sl = sorted(levels.get("swing_lows", []))[:5]
+    # sh_str = "  ".join(f"H {h:.2f}" for h in sh) if sh else "None"
+    # sl_str = "  ".join(f"L {l:.2f}" for l in sl) if sl else "None"
+    # print(f"Swings:    {sl_str} : {sh_str}")
     print(sep)
 
 
@@ -323,6 +312,19 @@ def print_key_levels(levels: dict, symbol: str = "", interval: str = "") -> None
 # ──────────────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+
+    parser = argparse.ArgumentParser(description="Process multiple stock symbols.")
+    parser.add_argument("symbols", type=str, nargs="?", help="Comma-separated stock symbols")
+    args = parser.parse_args()
+    if len(sys.argv) > 1:
+        target_symbols = [sym.strip().upper() for sym in args.symbols.split(",")]
+        existing_symbols = {row[0] for row in RUN_MATRIX}
+        for sym in target_symbols:
+            if sym not in existing_symbols:
+                # Generate rows for the new symbol across all default intervals
+                for interval in  ["15m", "30m", "1h"]:
+                    RUN_MATRIX.append((sym, interval, True, True))
+    
     print(f"\n{'═'*70}")
     print(f"  Multi-Symbol Candlestick Analyser")
     print(f"  Started : {datetime.now():%Y-%m-%d %H:%M:%S}")
@@ -334,7 +336,6 @@ def main() -> None:
 
     results: dict[tuple[str, str], object] = {}
     failed:  list[tuple[str, str]] = []
-    
 
     for idx, (symbol, interval, calc_macd, calc_rsi) in enumerate(RUN_MATRIX, 1):
         key = (symbol, interval)
