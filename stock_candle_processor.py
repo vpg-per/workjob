@@ -658,10 +658,10 @@ def process(
         # 6. Composite overall bias
         df = add_overall_bias(df)
 
-        # 6b. Bias change detection (15m, 30m, 1h supported)
+        # 6b. Bias change detection (15m, 30m, 1h, 4h supported)
         #     Alerting is deferred to the caller (run_candle_analysis) so that
         #     all intervals can be collected first and ONE combined alert sent.
-        if interval in ("15m", "30m", "1h"):
+        if interval in ("15m", "30m", "1h", "4h"):
             df = detect_bias_change(df)
             info = df.attrs.get("bias_change_info")
 
