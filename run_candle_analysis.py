@@ -98,7 +98,7 @@ def _build_db_row(info: dict) -> dict:
     }
 
 
-_MTF_INTERVALS = ("15m", "30m", "1h")
+_MTF_INTERVALS = ("15m", "30m", "1h", "4h")
 
 _BIAS_EMOJI = {"Bullish": "🟢", "Bearish": "🔴", "Neutral": "⚪"}
 
@@ -209,12 +209,18 @@ def build_combined_alert(
     info_15 = interval_infos.get("15m")
     info_30 = interval_infos.get("30m")
     info_1h = interval_infos.get("1h")
+    info_4h = interval_infos.get("4h")
 
     flipped_15   = info_15["changed"]   if info_15 else False
     flip_15_dir  = info_15["flag"]      if info_15 else 0
     flipped_30   = info_30["changed"]   if info_30 else False
     flip_30_dir  = info_30["flag"]      if info_30 else 0
     bias_1h_cur  = info_1h["current_bias"] if info_1h else ""
+    flipped_1h   = info_1h["changed"]   if info_1h else False
+    flip_1h_dir  = info_1h["flag"]      if info_1h else 0
+    flipped_4h   = info_4h["changed"]   if info_4h else False
+    flip_4h_dir  = info_4h["flag"]      if info_4h else 0    
+    bias_4h_cur  = info_4h["current_bias"] if info_4h else ""
 
     mtf_flag = ""
 
@@ -235,7 +241,14 @@ def build_combined_alert(
             mtf_flag = "✅ BULL — 30m flipped Bullish, 1h trend Bullish"
         elif flip_30_dir == -1 and "Bearish" in bias_1h_cur:
             mtf_flag = "✅ BEAR — 30m flipped Bearish, 1h trend Bearish"
-    
+
+    elif flipped_1h:
+        if flip_1h_dir == 1 :
+            mtf_flag = f"✅ BULL — 1h flipped Bullish, 4h trend {bias_4h_cur}"
+        elif flip_1h_dir == -1:
+            mtf_flag = f"✅ BEAR — 1h flipped Bearish, 1h trend {bias_4h_cur}"
+
+
     # ── Build header + TF rows ────────────────────────────────────────────────
     est_now = datetime.now(ZoneInfo("America/New_York"))
     now_str = est_now.strftime("%H:%M")
