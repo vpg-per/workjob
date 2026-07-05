@@ -610,7 +610,7 @@ def process(
     calc_macd: bool = True,
     calc_rsi:  bool = True,
     save_csv:  bool = True,
-) -> Optional[pd.DataFrame]:
+) -> tuple[Optional[pd.DataFrame], float]:
     """
     End-to-end pipeline for one symbol / interval combination.
 
@@ -640,6 +640,7 @@ def process(
         print(f"  Rows : {len(df)}   "
               f"Range: {df['rec_dt'].iloc[0]} {df['hour'].iloc[0]}:{df['minute'].iloc[0]} → {df['rec_dt'].iloc[-1]} {df['hour'].iloc[-1]}:{df['minute'].iloc[-1]}")
 
+        last_close_price = df['close'].iloc[-1]
         # 2. Strategy: MACD + RSI (conditional) + 26 CDL patterns
         df, cdl_cols = run_strategy(df, calc_macd=calc_macd, calc_rsi=calc_rsi)
         print(f"  Strategy done — {len(cdl_cols)} CDL cols added")
@@ -675,7 +676,7 @@ def process(
         # 7. Console summary
         print_summary(df, cdl_cols, symbol, interval)
         
-        return df
+        return df, last_close_price
 
     except Exception as exc:
         print(f"  ✖  {tag} failed: {exc}")

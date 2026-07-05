@@ -59,7 +59,7 @@ from key_levels import ( attach_key_levels )
 # ──────────────────────────────────────────────────────────────────────────────
 # Run matrix
 # ──────────────────────────────────────────────────────────────────────────────
-RUN_MATRIX: list[tuple[str, str, bool, bool]] = []
+RUN_MATRIX: dict[str, list[tuple[str, bool, bool]]] = {}
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -321,16 +321,13 @@ def defineInputSymbols():
     args = parser.parse_args()
     interval_to_process = ["15m", "30m", "1h"]
     target_symbols = ["SPY"]
-    if len(sys.argv) == 3:
-        if args.tradingterm.lower()==  "futures":
+    if len(sys.argv) == 3 and args.tradingterm.lower()==  "futures":
             interval_to_process = ["1h","4h"]
     if len(sys.argv) >= 2:
         target_symbols = [sym.strip().upper() for sym in args.symbols.split(",")]
-    existing_symbols = {row[0] for row in RUN_MATRIX}
     for sym in target_symbols:
-        if sym not in existing_symbols:
-            for interval in  interval_to_process:
-                RUN_MATRIX.append((sym, interval, True, True))
+        if sym not in RUN_MATRIX:
+            RUN_MATRIX[sym] = [(interval, True, True) for interval in interval_to_process]
 
     return
 
@@ -344,7 +341,7 @@ def main() -> None:
     print(f"\n{'═'*70}")
     print(f"  Multi-Symbol Candlestick Analyser")
     print(f"  Started : {datetime.now():%Y-%m-%d %H:%M:%S}")
-    print(f"  Jobs    : {len(RUN_MATRIX)}")
+    print(f"  Jobs    : {sum(len(jobs) for jobs in RUN_MATRIX.values())}")
     print(f"{'═'*70}")
 
     sm     = ServiceManager()
@@ -353,37 +350,47 @@ def main() -> None:
     results: dict[tuple[str, str], object] = {}
     failed:  list[tuple[str, str]] = []
 
-    for idx, (symbol, interval, calc_macd, calc_rsi) in enumerate(RUN_MATRIX, 1):
-        key = (symbol, interval)
-        print(f"\n[{idx}/{len(RUN_MATRIX)}]", end="")
-
-        t0 = time.time()
-        df = process(
-            sm        = sm,
-            symbol    = symbol,
-            interval  = interval,
-            calc_macd = calc_macd,
-            calc_rsi  = calc_rsi,
-            save_csv  = False,
-        )
-        elapsed = time.time() - t0
-
-        if df is not None:
-            results[key] = df
-            print(f"  ✔  {symbol} {interval} completed in {elapsed:.1f}s")
-        else:
-            failed.append(key)
-            print(f"  ✖  {symbol} {interval} failed after {elapsed:.1f}s")
-
-        if idx < len(RUN_MATRIX):
-            time.sleep(0.5)
-
-    gc.collect()
-    
-    symbols_in_run = dict.fromkeys(sym for sym, *_ in RUN_MATRIX)
+    # RUN_MATRIX is already grouped by symbol: {symbol: [(interval, calc_macd, calc_rsi), ...]}
+    symbols_in_run = list(RUN_MATRIX.keys())
+    total_jobs = sum(len(jobs) for jobs in RUN_MATRIX.values())
+    job_num = 0
 
     for symbol in symbols_in_run:
-        # Attach key levels using 15m if available (most granular)
+        for (interval, calc_macd, calc_rsi) in RUN_MATRIX[symbol]:
+            job_num += 1
+            key = (symbol, interval)
+            print(f"\n[{job_num}/{total_jobs}]", end="")
+
+            t0 = time.time()
+            df,close_price = process(
+                sm        = sm,
+                symbol    = symbol,
+                interval  = interval,
+                calc_macd = calc_macd,
+                calc_rsi  = calc_rsi,
+                save_csv  = False,
+            )
+            elapsed = time.time() - t0
+
+            if df is not None:
+                results[key] = df
+                print(f"  ✔  {symbol} {interval} completed in {elapsed:.1f}s")
+            else:
+                failed.append(key)
+                print(f"  ✖  {symbol} {interval} failed after {elapsed:.1f}s")
+
+            if job_num < total_jobs:
+                time.sleep(0.5)
+
+        # ── Symbol finished processing: print its overall bias + key levels ──
+        print(f"\n  {symbol} — Overall Bias:")
+        for interval in _MTF_INTERVALS:
+            df = results.get((symbol, interval))
+            if df is not None and "overall_bias" in df.columns:
+                cur = df["overall_bias"].iloc[-1]
+                print(f"    {interval:>3s}  current bias: {cur}")
+
+        # Attach key levels using 30m if available (most granular)
         df_30m = results.get((symbol, "30m"))
         if df_30m is not None:
             df_key = attach_key_levels(
@@ -400,9 +407,9 @@ def main() -> None:
         else:
             print(f"  {symbol} — 30m data not available for key levels")
 
-    # ── Combined multi-timeframe alert (DB-gated) ─────────────────────────────
-    symbols_in_run = dict.fromkeys(sym for sym, *_ in RUN_MATRIX)
+    gc.collect()
 
+    # ── Combined multi-timeframe alert (DB-gated) — batch summary at the end ──
     print(f"\n{'─'*70}")
     print("  BIAS CHANGE SUMMARY")
     print(f"{'─'*70}")
@@ -451,7 +458,7 @@ def main() -> None:
     # ── Final summary ─────────────────────────────────────────────────────────
     print(f"\n{'═'*70}")
     print(f"  COMPLETED : {datetime.now():%H:%M:%S}")
-    print(f"  Succeeded : {len(results)} / {len(RUN_MATRIX)}")
+    print(f"  Succeeded : {len(results)} / {total_jobs}")
     if failed:
         print(f"  Failed    : {[f'{s} {i}' for s, i in failed]}")
     print(f"{'═'*70}\n")
