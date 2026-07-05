@@ -1,4 +1,4 @@
-name: Run Candle analysis
+name: Futures Candle stick analysis
 
 on:
   push:
