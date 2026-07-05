@@ -59,12 +59,7 @@ from key_levels import ( attach_key_levels )
 # ──────────────────────────────────────────────────────────────────────────────
 # Run matrix
 # ──────────────────────────────────────────────────────────────────────────────
-RUN_MATRIX: list[tuple[str, str, bool, bool]] = [
-    # symbol   interval   calc_macd  calc_rsi
-    ("SPY",   "15m",     True,      True),
-    ("SPY",   "30m",     True,      True),
-    ("SPY",   "1h",      True,     True),
-]
+RUN_MATRIX: list[tuple[str, str, bool, bool]] = []
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -244,9 +239,9 @@ def build_combined_alert(
 
     elif flipped_1h:
         if flip_1h_dir == 1 :
-            mtf_flag = f"✅ BULL — 1h flipped Bullish, 4h trend {bias_4h_cur}"
+            mtf_flag = f"1h flipped Bullish, 4h trend {bias_4h_cur}"
         elif flip_1h_dir == -1:
-            mtf_flag = f"✅ BEAR — 1h flipped Bearish, 1h trend {bias_4h_cur}"
+            mtf_flag = f"1h flipped Bearish, 1h trend {bias_4h_cur}"
 
 
     # ── Build header + TF rows ────────────────────────────────────────────────
@@ -319,25 +314,33 @@ def print_key_levels(levels: dict, symbol: str = "", interval: str = "") -> None
     # print(f"Swings:    {sl_str} : {sh_str}")
     print(sep)
 
+def defineInputSymbols():
+    parser = argparse.ArgumentParser(description="Process multiple stock symbols.")
+    parser.add_argument("symbols", type=str, nargs="?", help="Comma-separated stock symbols")
+    parser.add_argument("tradingterm", type=str, nargs="?", help="Comma-separated stock symbols")
+    args = parser.parse_args()
+    interval_to_process = ["15m", "30m", "1h"]
+    target_symbols = ["SPY"]
+    if len(sys.argv) == 3:
+        if args.tradingterm.lower()==  "futures":
+            interval_to_process = ["1h","4h"]
+    if len(sys.argv) >= 2:
+        target_symbols = [sym.strip().upper() for sym in args.symbols.split(",")]
+    existing_symbols = {row[0] for row in RUN_MATRIX}
+    for sym in target_symbols:
+        if sym not in existing_symbols:
+            for interval in  interval_to_process:
+                RUN_MATRIX.append((sym, interval, True, True))
+
+    return
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Runner  (unchanged from original except gc / failed list)
 # ──────────────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    defineInputSymbols()
 
-    parser = argparse.ArgumentParser(description="Process multiple stock symbols.")
-    parser.add_argument("symbols", type=str, nargs="?", help="Comma-separated stock symbols")
-    args = parser.parse_args()
-    if len(sys.argv) > 1:
-        target_symbols = [sym.strip().upper() for sym in args.symbols.split(",")]
-        existing_symbols = {row[0] for row in RUN_MATRIX}
-        for sym in target_symbols:
-            if sym not in existing_symbols:
-                # Generate rows for the new symbol across all default intervals
-                for interval in  ["15m", "30m", "1h"]:
-                    RUN_MATRIX.append((sym, interval, True, True))
-    
     print(f"\n{'═'*70}")
     print(f"  Multi-Symbol Candlestick Analyser")
     print(f"  Started : {datetime.now():%Y-%m-%d %H:%M:%S}")
