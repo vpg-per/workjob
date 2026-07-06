@@ -321,13 +321,15 @@ def defineInputSymbols():
     args = parser.parse_args()
     interval_to_process = ["15m", "30m", "1h"]
     target_symbols = ["SPY"]
+    lagging_indicator = True
     if len(sys.argv) == 3 and args.tradingterm.lower()==  "futures":
             interval_to_process = ["1h","4h"]
+            lagging_indicator = False
     if len(sys.argv) >= 2:
         target_symbols = [sym.strip().upper() for sym in args.symbols.split(",")]
     for sym in target_symbols:
         if sym not in RUN_MATRIX:
-            RUN_MATRIX[sym] = [(interval, True, True) for interval in interval_to_process]
+            RUN_MATRIX[sym] = [(interval, lagging_indicator, lagging_indicator) for interval in interval_to_process]
 
     return
 
