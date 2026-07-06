@@ -221,9 +221,9 @@ def build_combined_alert(
 
     if flipped_15 and flipped_30 and flip_15_dir == flip_30_dir:
         if flip_15_dir == 1:
-            mtf_flag = "🔥 STRONG BULL — 15m & 30m both flipped Bullish"
+            mtf_flag = "🔥 STRONG BULL — 15m, 30m both flipped Bullish"
         else:
-            mtf_flag = "🔥 STRONG BEAR — 15m & 30m both flipped Bearish"
+            mtf_flag = "🔥 STRONG BEAR — 15m, 30m both flipped Bearish"
 
     elif flipped_15:
         if flip_15_dir == 1 and "Bullish" in bias_1h_cur:
