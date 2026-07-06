@@ -267,7 +267,7 @@ def find_key_levels(
 
             est_now = datetime.now(ZoneInfo("America/New_York"))
             now_str = est_now.strftime("%H:%M")
-            if est_now.hour > 11:
+            if est_now.hour >= 11:
                 pivot_vals = [
                     val for val in [
                         result["prev_day_high"], 
