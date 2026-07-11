@@ -162,7 +162,7 @@ def _build_levels_line(symbol: str, results: dict) -> list[str]:
 
 def build_combined_alert(
     symbol:  str,
-    results: dict[tuple[str, str], object],
+    results: dict[tuple[str, str], object], futures: bool
 ) -> str | None:
     """
     Inspects bias_change_info from every completed interval result for `symbol`.
@@ -206,8 +206,10 @@ def build_combined_alert(
     info_1h = interval_infos.get("1h")
     info_4h = interval_infos.get("4h")
 
+    bias_15_cur  = info_15["current_bias"] if info_15 else ""
     flipped_15   = info_15["changed"]   if info_15 else False
     flip_15_dir  = info_15["flag"]      if info_15 else 0
+    bias_30_cur  = info_30["current_bias"] if info_30 else ""
     flipped_30   = info_30["changed"]   if info_30 else False
     flip_30_dir  = info_30["flag"]      if info_30 else 0
     bias_1h_cur  = info_1h["current_bias"] if info_1h else ""
@@ -219,28 +221,29 @@ def build_combined_alert(
 
     mtf_flag = ""
 
-    if flipped_15 and flipped_30 and flip_15_dir == flip_30_dir:
-        if flip_15_dir == 1:
-            mtf_flag = "🔥 STRONG BULL — 15m, 30m both flipped Bullish"
-        else:
-            mtf_flag = "🔥 STRONG BEAR — 15m, 30m both flipped Bearish"
+    if futures == False:
+        if flipped_15 and flipped_30 and flip_15_dir == flip_30_dir:
+            if flip_15_dir == 1:
+                mtf_flag = "🔥 STRONG BULL — 15m, 30m both flipped Bullish"
+            else:
+                mtf_flag = "🔥 STRONG BEAR — 15m, 30m both flipped Bearish"
 
-    elif flipped_15:
-        if flip_15_dir == 1 and "Bullish" in bias_1h_cur:
-            mtf_flag = "✅ BULL — 15m flipped Bullish, 1h trend Bullish"
-        elif flip_15_dir == -1 and "Bearish" in bias_1h_cur:
-            mtf_flag = "✅ BEAR — 15m flipped Bearish, 1h trend Bearish"
+        elif flipped_15:
+            if flip_15_dir == 1 and "Bullish" in bias_30_cur:
+                mtf_flag = "✅ BULL — 15m flipped Bullish, 30m is Bullish"
+            elif flip_15_dir == -1 and "Bearish" in bias_30_cur:
+                mtf_flag = "✅ BEAR — 15m flipped Bearish, 30m is Bearish"
 
-    elif flipped_30:
-        if flip_30_dir == 1 and "Bullish" in bias_1h_cur:
-            mtf_flag = "✅ BULL — 30m flipped Bullish, 1h trend Bullish"
-        elif flip_30_dir == -1 and "Bearish" in bias_1h_cur:
-            mtf_flag = "✅ BEAR — 30m flipped Bearish, 1h trend Bearish"
+        elif flipped_30:
+            if flip_30_dir == 1 and "Bullish" in bias_15_cur:
+                mtf_flag = "✅ BULL — 30m flipped Bullish, 15m is Bullish"
+            elif flip_30_dir == -1 and "Bearish" in bias_15_cur:
+                mtf_flag = "✅ BEAR — 30m flipped Bearish, 15m is Bearish"
 
-    elif flipped_1h:
-        if flip_1h_dir == 1 :
+    elif flipped_1h and futures:
+        if flip_1h_dir == 1 and "Bullish" in bias_4h_cur:
             mtf_flag = f"1h flipped Bullish, 4h trend {bias_4h_cur}"
-        elif flip_1h_dir == -1:
+        elif flip_1h_dir == -1 and "Bearish" in bias_4h_cur:
             mtf_flag = f"1h flipped Bearish, 1h trend {bias_4h_cur}"
 
 
@@ -322,23 +325,25 @@ def defineInputSymbols():
     interval_to_process = ["15m", "30m", "1h"]
     target_symbols = ["SPY"]
     lagging_indicator = True
+    isFutures = False
     if len(sys.argv) == 3 and args.tradingterm.lower()==  "futures":
             interval_to_process = ["1h","4h"]
             lagging_indicator = False
+            isFutures = True
     if len(sys.argv) >= 2:
         target_symbols = [sym.strip().upper() for sym in args.symbols.split(",")]
     for sym in target_symbols:
         if sym not in RUN_MATRIX:
             RUN_MATRIX[sym] = [(interval, lagging_indicator, lagging_indicator) for interval in interval_to_process]
 
-    return
+    return isFutures
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Runner  (unchanged from original except gc / failed list)
 # ──────────────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    defineInputSymbols()
+    futures = defineInputSymbols()
 
     print(f"\n{'═'*70}")
     print(f"  Multi-Symbol Candlestick Analyser")
@@ -417,7 +422,7 @@ def main() -> None:
     print(f"{'─'*70}")
 
     for symbol in symbols_in_run:
-        alert_msg = build_combined_alert(symbol, results)
+        alert_msg = build_combined_alert(symbol, results, futures)
 
         if not alert_msg:
             print(f"\n  {symbol}  — no bias flip detected")
