@@ -24,7 +24,7 @@ class GexProcessor:
             connection_locator = page.locator('[data-test-connection-state="CONNECTED"]').and_(page.locator('[data-test-script-state="notRunning"]'))
             connection_locator.wait_for(state="visible", timeout=15000)
             #print(page.content())
-            page.locator('button[data-testid="stTab"][role="tab"]').filter(has_text="Overview Metrics").click()
+            page.locator('button[data-testid="stTab"][role="tab"]').filter(has_text="Overview").click()
             connection_locator = page.locator('[data-test-connection-state="CONNECTED"]').and_(page.locator('[data-test-script-state="notRunning"]'))
             connection_locator.wait_for(state="visible", timeout=15000)
 
