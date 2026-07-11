@@ -398,21 +398,22 @@ def main() -> None:
                 print(f"    {interval:>3s}  current bias: {cur}")
 
         # Attach key levels using 30m if available (most granular)
-        df_30m = results.get((symbol, "30m"))
-        if df_30m is not None:
-            df_key = attach_key_levels(
-                df_30m,
-                sm       = sm,
-                symbol   = symbol,
-                n_levels = 2,
-            )
-            levels = df_key.attrs.get("key_levels", {})
-            if levels:
-                print_key_levels(levels, symbol=symbol, interval="30m")
+        if futures == False:
+            df_30m = results.get((symbol, "30m"))
+            if df_30m is not None:
+                df_key = attach_key_levels(
+                    df_30m,
+                    sm       = sm,
+                    symbol   = symbol,
+                    n_levels = 2,
+                )
+                levels = df_key.attrs.get("key_levels", {})
+                if levels:
+                    print_key_levels(levels, symbol=symbol, interval="30m")
+                else:
+                    print(f"  {symbol} — no key levels available")
             else:
-                print(f"  {symbol} — no key levels available")
-        else:
-            print(f"  {symbol} — 30m data not available for key levels")
+                print(f"  {symbol} — 30m data not available for key levels")
 
     gc.collect()
 
