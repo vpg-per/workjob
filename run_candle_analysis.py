@@ -47,14 +47,13 @@ import os
 import gc
 import sys
 import time
-import math
 import argparse
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from gitalertmanager import AlertManager
 from dataManager import ServiceManager
 from stock_candle_processor import ( process)
-from key_levels import ( attach_key_levels )
+from key_levels import ( attach_key_levels, build_levels_line )
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Run matrix
@@ -110,51 +109,19 @@ def _is_bearish(bias: str) -> bool:
     return "Bearish" in bias
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# NEW: Build directional targets block for Telegram
-# ──────────────────────────────────────────────────────────────────────────────
-
-def _build_levels_line(symbol: str, results: dict) -> list[str]:
+def _active_tf_windows(minute: int) -> dict[str, bool]:
     """
-    Returns up to 2 compact lines with the nearest S/R levels from the 15m frame.
-      S {nearest_support:.2f}  ►  {price:.2f}  ►  R {nearest_resistance:.2f}
-      PDH {pdh:.2f}  PDL {pdl:.2f}  OR30 {orl:.2f}–{orh:.2f}
+    Determines which timeframe checks are "active" for the current
+    minute-of-hour. Unlike a single gating window, multiple TFs can be
+    active at once:
+
+      15m  → always active (checked on every run)
+      30m  → active only during :30–:45  or  :00–:15
+      1h   → active only during :00–:15
     """
-    kl = {}
-    for iv in ("15m", "30m"):
-        df_iv = results.get((symbol, iv))
-        if df_iv is not None:
-            kl = getattr(df_iv, "attrs", {}).get("key_levels", {})
-            if kl:
-                break
-    if not kl:
-        return []
-
-    price = kl.get("current_price", 0.0)
-    sup   = kl.get("support",    [])
-    res   = kl.get("resistance", [])
-
-    s_str = f"S {sup[len(sup)-1]:.2f}  " if sup else ""
-    r_str = f"  R {res[0]:.2f}" if res else ""
-    line1 = f"📌 {s_str}► {price:.2f}{r_str}"
-
-    pdh = kl.get("prev_day_high")
-    pdl = kl.get("prev_day_low")
-    pmh = kl.get("premarket_high")
-    pml = kl.get("premarket_low")
-    orh = kl.get("opening_range_high_30")
-    orl = kl.get("opening_range_low_30")
-
-    parts = []
-    if not math.isnan(pdl) and not math.isnan(pdh):
-        parts.append(f"PD {pdl:.2f}–{pdh:.2f}")
-    if not math.isnan(pml) and not math.isnan(pmh):
-        parts.append(f"PM {pml:.2f}–{pmh:.2f}")
-    if not math.isnan(orl) and not math.isnan(orh):
-        parts.append(f"OR30 {orl:.2f}–{orh:.2f}")
-    line2 = ("📅 " + "  |  ".join(parts)) if parts else ""
-
-    return [line1] + ([line2] if line2 else [])
+    run_30m = (30 <= minute < 45) or (0 <= minute < 15)
+    run_1h  = (0 <= minute < 15)
+    return {"15m": True, "30m": run_30m, "1h": run_1h}
     
 # ──────────────────────────────────────────────────────────────────────────────
 # Updated: build_combined_alert — now includes directional targets
@@ -164,21 +131,6 @@ def build_combined_alert(
     symbol:  str,
     results: dict[tuple[str, str], object], futures: bool
 ) -> str | None:
-    """
-    Inspects bias_change_info from every completed interval result for `symbol`.
-    Returns a formatted alert string if at least one interval flipped, else None.
-
-    Includes directional price targets (resistance/support/session anchors)
-    filtered by the MTF bias direction so the alert is immediately actionable.
-
-    Multi-Timeframe Agreement flag (mtf_agreement):
-      "🔥 STRONG BULL"    — 15m AND 30m both flipped Bullish
-      "🔥 STRONG BEAR"    — 15m AND 30m both flipped Bearish
-      "✅ CONFIRMED BULL"  — 15m flipped Bullish AND 1h trend Bullish
-      "✅ CONFIRMED BEAR"  — 15m flipped Bearish AND 1h trend Bearish
-      "⚠️  WEAK / MIXED"   — only one TF changed, or TFs conflict
-      (no flag line)       — no flip detected on any TF
-    """
     # ── Gather per-interval info ──────────────────────────────────────────────
     interval_infos: dict[str, dict] = {}
     for interval in _MTF_INTERVALS:
@@ -219,26 +171,42 @@ def build_combined_alert(
     flip_4h_dir  = info_4h["flag"]      if info_4h else 0    
     bias_4h_cur  = info_4h["current_bias"] if info_4h else ""
 
+    # ── Current execution time (drives which TF gates the alert below) ────────
+    est_now = datetime.now(ZoneInfo("America/New_York"))
+    now_str = est_now.strftime("%H:%M")
+
+    bias_15_last = info_15["last_bias"] if info_15 else ""
+    bias_30_last = info_30["last_bias"] if info_30 else ""
+    bias_1h_last = info_1h["last_bias"] if info_1h else ""
+
     mtf_flag = ""
 
     if futures == False:
-        if flipped_15 and flipped_30 and flip_15_dir == flip_30_dir:
+        active = _active_tf_windows(est_now.minute)
+        mtf_msgs: list[str] = []
+
+        # 15m check — always active, runs on every execution
+        if active["15m"] and flipped_15:
             if flip_15_dir == 1:
-                mtf_flag = "🔥 STRONG BULL — 15m, 30m both flipped Bullish"
-            else:
-                mtf_flag = "🔥 STRONG BEAR — 15m, 30m both flipped Bearish"
+                mtf_msgs.append(f"🔥 15m flipped Bullish — now")
+            elif flip_15_dir == -1:
+                mtf_msgs.append(f"🔥 15m flipped Bearish — now")
 
-        elif flipped_15:
-            if flip_15_dir == 1 and "Bullish" in bias_30_cur:
-                mtf_flag = "✅ BULL — 15m flipped Bullish, 30m is Bullish"
-            elif flip_15_dir == -1 and "Bearish" in bias_30_cur:
-                mtf_flag = "✅ BEAR — 15m flipped Bearish, 30m is Bearish"
+        # 30m check — active only during :30–:45 or :00–:15
+        if active["30m"] and flipped_30 and bias_30_last == bias_15_last:
+            if flip_30_dir == 1:
+                mtf_msgs.append(f"✅ 30m flipped Bullish, 15m is ({bias_15_last})")
+            elif flip_30_dir == -1:
+                mtf_msgs.append(f"❌ 30m flipped Bearish, 15m is ({bias_15_last})")
 
-        elif flipped_30:
-            if flip_30_dir == 1 and "Bullish" in bias_15_cur:
-                mtf_flag = "✅ BULL — 30m flipped Bullish, 15m is Bullish"
-            elif flip_30_dir == -1 and "Bearish" in bias_15_cur:
-                mtf_flag = "✅ BEAR — 30m flipped Bearish, 15m is Bearish"
+        # 1h check — active only during :00–:15
+        if active["1h"] and flipped_1h and bias_1h_last == bias_30_last:
+            if flip_1h_dir == 1:
+                mtf_msgs.append(f"✅ 1h flipped Bullish, 30m is ({bias_30_last})")
+            elif flip_1h_dir == -1:
+                mtf_msgs.append(f"❌ 1h flipped Bearish, 30m is ({bias_30_last})")
+
+        mtf_flag = " | ".join(mtf_msgs)
 
     elif flipped_1h and futures:
         if flip_1h_dir == 1 and "Bullish" in bias_4h_cur:
@@ -248,8 +216,6 @@ def build_combined_alert(
 
 
     # ── Build header + TF rows ────────────────────────────────────────────────
-    est_now = datetime.now(ZoneInfo("America/New_York"))
-    now_str = est_now.strftime("%H:%M")
     lines = [
         f"📊 {symbol} -{now_str} — Bias {mtf_flag if mtf_flag else 'update'}",
         "",
@@ -268,9 +234,6 @@ def build_combined_alert(
             )
         else:
             lines.append(f"{em} {interval:>3s}  No change  [current: {cur}]")
-    lines.append("")
-    # ── Compact key levels (2 lines max) ─────────────────────────────────────
-    lines.extend(_build_levels_line(symbol, results))
 
     return "\n".join(lines)
 
@@ -317,7 +280,7 @@ def print_key_levels(levels: dict, symbol: str = "", interval: str = "") -> None
     # print(f"Swings:    {sl_str} : {sh_str}")
     print(sep)
 
-def defineInputSymbols():
+def define_input_symbols():
     parser = argparse.ArgumentParser(description="Process multiple stock symbols.")
     parser.add_argument("symbols", type=str, nargs="?", help="Comma-separated stock symbols")
     parser.add_argument("tradingterm", type=str, nargs="?", help="Comma-separated stock symbols")
@@ -343,7 +306,7 @@ def defineInputSymbols():
 # ──────────────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    futures = defineInputSymbols()
+    futures = define_input_symbols()
 
     print(f"\n{'═'*70}")
     print(f"  Multi-Symbol Candlestick Analyser")
@@ -423,7 +386,13 @@ def main() -> None:
     print(f"{'─'*70}")
 
     for symbol in symbols_in_run:
-        alert_msg = build_combined_alert(symbol, results, futures)
+        symb_lines =[]
+        alertstr = build_combined_alert(symbol, results, futures)
+        symb_lines.append(alertstr)
+        if not alertstr:
+            symb_lines.append("")
+        symb_lines.extend(build_levels_line(symbol, results))
+        alert_msg = "\n".join(symb_lines)
 
         if not alert_msg:
             print(f"\n  {symbol}  — no bias flip detected")
@@ -433,7 +402,7 @@ def main() -> None:
                     cur = df["overall_bias"].iloc[-1]
                     print(f"    {interval:>3s}  current bias: {cur}")
             continue
-
+        
         # ── DB gate ──────────────────────────────────────────────────────────
         new_flip_intervals: list[str] = []
 

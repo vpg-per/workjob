@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import warnings
+import math
 from datetime import datetime, timedelta, time as dtime
 from typing import Optional
 from datetime import datetime
@@ -305,6 +306,52 @@ def find_key_levels(
     # result["swing_lows"]  = sorted([p for p in all_swing_lows if p < close], reverse=True)[:n_levels]
 
     return result
+
+# ──────────────────────────────────────────────────────────────────────────────
+# NEW: Build directional targets block for Telegram
+# ──────────────────────────────────────────────────────────────────────────────
+
+def build_levels_line(symbol: str, results: dict) -> list[str]:
+    """
+    Returns up to 2 compact lines with the nearest S/R levels from the 15m frame.
+      S {nearest_support:.2f}  ►  {price:.2f}  ►  R {nearest_resistance:.2f}
+      PDH {pdh:.2f}  PDL {pdl:.2f}  OR30 {orl:.2f}–{orh:.2f}
+    """
+    kl = {}
+    for iv in ("15m", "30m"):
+        df_iv = results.get((symbol, iv))
+        if df_iv is not None:
+            kl = getattr(df_iv, "attrs", {}).get("key_levels", {})
+            if kl:
+                break
+    if not kl:
+        return []
+
+    price = kl.get("current_price", 0.0)
+    sup   = kl.get("support",    [])
+    res   = kl.get("resistance", [])
+
+    s_str = f"S {sup[len(sup)-1]:.2f}  " if sup else ""
+    r_str = f"  R {res[0]:.2f}" if res else ""
+    line1 = f"📌 {s_str}► {price:.2f}{r_str}"
+
+    pdh = kl.get("prev_day_high")
+    pdl = kl.get("prev_day_low")
+    pmh = kl.get("premarket_high")
+    pml = kl.get("premarket_low")
+    orh = kl.get("opening_range_high_30")
+    orl = kl.get("opening_range_low_30")
+
+    parts = []
+    if not math.isnan(pdl) and not math.isnan(pdh):
+        parts.append(f"PD {pdl:.2f}–{pdh:.2f}")
+    if not math.isnan(pml) and not math.isnan(pmh):
+        parts.append(f"PM {pml:.2f}–{pmh:.2f}")
+    if not math.isnan(orl) and not math.isnan(orh):
+        parts.append(f"OR30 {orl:.2f}–{orh:.2f}")
+    line2 = ("📅 " + "  |  ".join(parts)) if parts else ""
+
+    return [line1] + ([line2] if line2 else [])
 
 
 def attach_key_levels(
