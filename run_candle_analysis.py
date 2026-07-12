@@ -396,7 +396,9 @@ def main() -> None:
     for symbol in symbols_in_run:
         symb_lines = []
         alertstr = build_combined_alert(symbol, results, futures)
-        symb_lines.append(alertstr if alertstr else "")
+        symb_lines.append(alertstr if alertstr else "")       
+        if symb_lines:
+            symb_lines.append("")
         symb_lines.extend(build_levels_line(symbol, results))
         alert_msg = "\n".join(symb_lines)
 
