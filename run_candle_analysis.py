@@ -188,31 +188,39 @@ def build_combined_alert(
         # 15m check — always active, runs on every execution
         if active["15m"] and flipped_15:
             if flip_15_dir == 1:
-                mtf_msgs.append(f"🔥 15m flipped Bullish — now")
+                mtf_msgs.append(f"✅ 15m flipped Bullish")
             elif flip_15_dir == -1:
-                mtf_msgs.append(f"🔥 15m flipped Bearish — now")
+                mtf_msgs.append(f"❌ 15m flipped Bearish")
 
         # 30m check — active only during :30–:45 or :00–:15
         if active["30m"] and flipped_30 and bias_30_last == bias_15_last:
             if flip_30_dir == 1:
-                mtf_msgs.append(f"✅ 30m flipped Bullish, 15m is ({bias_15_last})")
+                mtf_msgs.append(f"✅ 30m flipped Bullish")
             elif flip_30_dir == -1:
-                mtf_msgs.append(f"❌ 30m flipped Bearish, 15m is ({bias_15_last})")
+                mtf_msgs.append(f"❌ 30m flipped Bearish")
 
         # 1h check — active only during :00–:15
         if active["1h"] and flipped_1h and bias_1h_last == bias_30_last:
             if flip_1h_dir == 1:
-                mtf_msgs.append(f"✅ 1h flipped Bullish, 30m is ({bias_30_last})")
+                mtf_msgs.append(f"✅ 1h flipped Bullish")
             elif flip_1h_dir == -1:
-                mtf_msgs.append(f"❌ 1h flipped Bearish, 30m is ({bias_30_last})")
+                mtf_msgs.append(f"❌ 1h flipped Bearish")
 
         mtf_flag = " | ".join(mtf_msgs)
 
     elif flipped_1h and futures:
-        if flip_1h_dir == 1 and "Bullish" in bias_4h_cur:
-            mtf_flag = f"1h flipped Bullish, 4h trend {bias_4h_cur}"
-        elif flip_1h_dir == -1 and "Bearish" in bias_4h_cur:
-            mtf_flag = f"1h flipped Bearish, 1h trend {bias_4h_cur}"
+        mtf_msgs: list[str] = []
+        if flip_1h_dir == 1:
+            mtf_msgs.append( f"✅ 1h flipped Bullish")
+        elif flip_1h_dir == -1:
+            mtf_msgs.append(f"1❌ h flipped Bearish")
+            
+        if flip_4h_dir == 1 and "Bullish" in bias_1h_cur:
+            mtf_msgs.append( f"✅ 4h flipped Bullish")
+        elif flip_4h_dir == -1 and "Bearish" in bias_1h_cur:
+            mtf_msgs.append(f"1❌ 4h flipped Bearish")
+
+        mtf_flag = " | ".join(mtf_msgs)
 
 
     # ── Build header + TF rows ────────────────────────────────────────────────
@@ -386,11 +394,9 @@ def main() -> None:
     print(f"{'─'*70}")
 
     for symbol in symbols_in_run:
-        symb_lines =[]
+        symb_lines = []
         alertstr = build_combined_alert(symbol, results, futures)
-        symb_lines.append(alertstr)
-        if not alertstr:
-            symb_lines.append("")
+        symb_lines.append(alertstr if alertstr else "")
         symb_lines.extend(build_levels_line(symbol, results))
         alert_msg = "\n".join(symb_lines)
 
