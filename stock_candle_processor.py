@@ -40,6 +40,7 @@ import importlib.util
 import sys
 import warnings
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -192,8 +193,12 @@ def fetch_ohlcv(sm: ServiceManager, symbol: str, interval: str) -> pd.DataFrame:
         end_dt = end_dt.replace(
             hour=end_dt.hour - rem, minute=0, second=0, microsecond=0
         )
-    end_dt = end_dt.replace(hour=11, minute=32, second=0, microsecond=0)
-    
+
+    eastern = ZoneInfo("America/New_York")
+    end_dt = datetime.now(eastern).replace(
+        hour=11, minute=32, second=0, microsecond=0
+    )
+
     # download_stock_data maps "1h"/"4h" → "30m" internally, so we always
     # receive 30-minute bars; post-download resampling matches GetStockdata_Byinterval
     df = sm.download_stock_data(symbol, start_ts, end_dt.timestamp(), interval=interval)
