@@ -40,7 +40,6 @@ import importlib.util
 import sys
 import warnings
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -193,11 +192,6 @@ def fetch_ohlcv(sm: ServiceManager, symbol: str, interval: str) -> pd.DataFrame:
         end_dt = end_dt.replace(
             hour=end_dt.hour - rem, minute=0, second=0, microsecond=0
         )
-
-    eastern = ZoneInfo("America/New_York")
-    end_dt = datetime.now(eastern).replace(
-        hour=11, minute=32, second=0, microsecond=0
-    )
 
     # download_stock_data maps "1h"/"4h" → "30m" internally, so we always
     # receive 30-minute bars; post-download resampling matches GetStockdata_Byinterval
@@ -566,7 +560,10 @@ def print_summary(
     print(f"\n{sep2}")
     print(f"  INDICATOR SNAPSHOT  |  {tag}  |  last 10 bars")
     print(sep2)
-    print(df[snap_cols].tail(10).to_string(index=False))
+    if interval=="15m":
+        print(df[snap_cols].tail(30).to_string(index=False))
+    else:
+        print(df[snap_cols].tail(10).to_string(index=False))
     print(sep2)
 
    # ── 2. Pattern hit rows ──────────────────────────────────────────────────
