@@ -335,7 +335,9 @@ def main() -> None:
     symbols_in_run = list(RUN_MATRIX.keys())
     total_jobs = sum(len(jobs) for jobs in RUN_MATRIX.values())
     job_num = 0
-    altMgr.send_chart_alert(os.getenv("CANDLESTICK_RUNARGUMENTS"))
+    altMgr.send_chart_alert(os.getenv("TEST11"))
+
+    return
 
     for symbol in symbols_in_run:
         for (interval, calc_macd, calc_rsi) in RUN_MATRIX[symbol]:
