@@ -36,8 +36,8 @@ jobs:
     # Fixed: Corrected alignment for 'env:'. It must sit exactly flush under the target step execution block.
     - name: Run Candle analysis
       env:
-        USER_ID: ${{ secrets.TELE_CHAT_ID }}
-        USER_SECRET: ${{ secrets.TELE_TOKEN }}
-        DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        USER_ID: ${{ vars.TELE_CHAT_ID }}
+        USER_SECRET: ${{ vars.TELE_TOKEN }}
+        DATABASE_URL: ${{ vars.DATABASE_URL }}
         TEST11: ${{ vars.TEST11 }}
-      run: python run_candle_analysis.py ${{ secrets.CANDLESTICK_RUNARGUMENTS }}
+      run: python run_candle_analysis.py ${{ vars.CANDLESTICK_RUNARGUMENTS }}
