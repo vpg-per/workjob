@@ -335,6 +335,8 @@ def main() -> None:
     symbols_in_run = list(RUN_MATRIX.keys())
     total_jobs = sum(len(jobs) for jobs in RUN_MATRIX.values())
     job_num = 0
+  
+    print(os.getenv("TEST11"))
     altMgr.send_chart_alert(os.getenv("TEST11"))
 
     return
