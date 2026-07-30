@@ -23,6 +23,7 @@ class AlertManager:
         self.chat_id = os.getenv("USER_ID")
 
     def send_chart_alert(self, s_message):
+        print(f"token:{self.token}, chat_id:{self.chat_id}")
         url = f"https://api.telegram.org/bot{self.token}/sendMessage?chat_id={self.chat_id}&text={s_message}"
         return requests.get(url).json()
     
