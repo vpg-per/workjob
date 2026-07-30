@@ -64,6 +64,9 @@ RUN_MATRIX: dict[str, list[tuple[str, bool, bool]]] = {}
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
+from dotenv import load_dotenv
+load_dotenv()
+
 def _build_db_row(info: dict) -> dict:
     from datetime import datetime as _dt
     raw_lt = info.get("lasttime") or info.get("last_time")
@@ -332,6 +335,7 @@ def main() -> None:
     symbols_in_run = list(RUN_MATRIX.keys())
     total_jobs = sum(len(jobs) for jobs in RUN_MATRIX.values())
     job_num = 0
+    altMgr.send_chart_alert(os.getenv("CANDLESTICK_RUNARGUMENTS"))
 
     for symbol in symbols_in_run:
         for (interval, calc_macd, calc_rsi) in RUN_MATRIX[symbol]:
