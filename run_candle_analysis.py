@@ -430,7 +430,7 @@ def main() -> None:
                 new_flip_intervals.append(interval)
                 altMgr.AddAlertRecordtoDB(row, symbol, interval)
                 print(f"  [DB] {symbol} {interval} new flip — recorded in DB")
-        altMgr.send_chart_alert("Debug test msg")
+        
         if new_flip_intervals:
             print(f"\n{alert_msg}")
             altMgr.send_chart_alert(alert_msg)
