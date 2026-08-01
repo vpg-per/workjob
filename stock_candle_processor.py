@@ -560,10 +560,7 @@ def print_summary(
     print(f"\n{sep2}")
     print(f"  INDICATOR SNAPSHOT  |  {tag}  |  last 10 bars")
     print(sep2)
-    if interval=="15m":
-        print(df[snap_cols].tail(30).to_string(index=False))
-    else:
-        print(df[snap_cols].tail(10).to_string(index=False))
+    print(df[snap_cols].tail(6).to_string(index=False))
     print(sep2)
 
    # ── 2. Pattern hit rows ──────────────────────────────────────────────────
