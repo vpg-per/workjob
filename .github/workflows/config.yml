@@ -34,6 +34,6 @@ jobs:
 
     - name: Run Playwright Script
       env:
-        USER_ID: ${{ secrets.TELE_CHAT_ID }}
-        USER_SECRET: ${{ secrets.TELE_TOKEN }}
+        USER_ID: ${{ vars.TELE_CHAT_ID }}
+        USER_SECRET: ${{ vars.TELE_TOKEN }}
       run: python run.py
