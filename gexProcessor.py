@@ -6,7 +6,6 @@ import time
 from gitalertmanager import AlertManager
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
-
 class GexProcessor:
     def __init__(self):
         
@@ -24,20 +23,20 @@ class GexProcessor:
             page = browser.new_page()
             try:
                 page.goto("https://soptionexp.streamlit.app/~/+/?symbol=SPY&min_oi=10&strikes=8/favicon.png", wait_until="networkidle")
-
                 connection_locator = page.locator('[data-test-connection-state="CONNECTED"]').and_(page.locator('[data-test-script-state="notRunning"]'))
                 connection_locator.wait_for(state="visible", timeout=60000)
-                download_button = page.locator('[data-testid="stDownloadButton"] button').first
-                download_button.wait_for(state="visible", timeout=15000)
 
-                if download_button.count() <= 0:
-                    sleep_button = page.locator('[data-testid="wakeup-button-viewer"] button').first
-                    sleep_button.wait_for(state="visible", timeout=15000)
-                    sleep_button.click()
+                if connection_locator.is_visible() == False:
+                    page.goto("https://soptionexp.streamlit.app/", wait_until="load")
+                    page.wait_for_timeout(20000)
+                    sleep_button = page.locator('button[data-testid="wakeup-button-viewer"]')
+                    if sleep_button.is_visible() == False:
+                        sleep_button.click()
                     time.sleep(99)
-
-                connection_locator = page.locator('[data-test-connection-state="CONNECTED"]').and_(page.locator('[data-test-script-state="notRunning"]'))
-                connection_locator.wait_for(state="visible", timeout=60000)
+                    page.goto("https://soptionexp.streamlit.app/~/+/?symbol=SPY&min_oi=10&strikes=8/favicon.png", wait_until="networkidle")
+                    connection_locator = page.locator('[data-test-connection-state="CONNECTED"]').and_(page.locator('[data-test-script-state="notRunning"]'))
+                    connection_locator.wait_for(state="visible", timeout=60000)
+                
                 download_button = page.locator('[data-testid="stDownloadButton"] button').first
                 download_button.wait_for(state="visible", timeout=15000)
                 with page.expect_download(timeout=20000) as download_info:
@@ -46,7 +45,6 @@ class GexProcessor:
     
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     tmp_path = os.path.join(tmp_dir, download.suggested_filename or "streamlit_chart.png")
-                    print(tmp_path)
                     download.save_as(tmp_path)
                     with open(tmp_path, "rb") as f:
                         buf.write(f.read())
