@@ -18,19 +18,23 @@ class GexProcessor:
     def capture_chart(self) -> io.BytesIO:
         buf = io.BytesIO()
         with sync_playwright() as p:
-            # headless=True is default, but you can explicitly write it
             browser = p.chromium.launch(headless=True) 
             page = browser.new_page()
             try:
                 page.goto("https://soptionexp.streamlit.app/~/+/?symbol=SPY&min_oi=10&strikes=8/favicon.png", wait_until="networkidle")
                 connection_locator = page.locator('[data-test-connection-state="CONNECTED"]').and_(page.locator('[data-test-script-state="notRunning"]'))
-                connection_locator.wait_for(state="visible", timeout=60000)
 
-                if connection_locator.is_visible() == False:
+                is_connected = True
+                try:
+                    connection_locator.wait_for(state="visible", timeout=60000)
+                except PlaywrightTimeoutError:
+                    is_connected = False
+
+                if is_connected == False:
                     page.goto("https://soptionexp.streamlit.app/", wait_until="load")
                     page.wait_for_timeout(20000)
                     sleep_button = page.locator('button[data-testid="wakeup-button-viewer"]')
-                    if sleep_button.is_visible() == False:
+                    if sleep_button.is_visible():
                         sleep_button.click()
                     time.sleep(99)
                     page.goto("https://soptionexp.streamlit.app/~/+/?symbol=SPY&min_oi=10&strikes=8/favicon.png", wait_until="networkidle")
@@ -51,7 +55,8 @@ class GexProcessor:
                 buf.seek(0)
                 browser.close()
                 
-            except PlaywrightTimeoutError:
+            except PlaywrightTimeoutError as err:
+                print(f"Error: {err}")
                 pass
                 
             gc.collect()
