@@ -199,13 +199,6 @@ def build_combined_alert(
             elif flip_30_dir == -1:
                 mtf_msgs.append(f"❌ 30m flipped Bearish")
 
-        # 1h check — active only during :00–:15
-        if active["1h"] and flipped_1h and bias_1h_last == bias_30_last:
-            if flip_1h_dir == 1:
-                mtf_msgs.append(f"✅ 1h flipped Bullish")
-            elif flip_1h_dir == -1:
-                mtf_msgs.append(f"❌ 1h flipped Bearish")
-
         mtf_flag = " | ".join(mtf_msgs)
 
     elif flipped_1h and futures:
