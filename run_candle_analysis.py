@@ -186,7 +186,7 @@ def build_combined_alert(
         mtf_msgs: list[str] = []
 
         # 15m check — always active, runs on every execution
-        if active["15m"] and flipped_15:
+        if active["15m"] and flipped_15 and bias_30_last == bias_15_last:
             if flip_15_dir == 1:
                 mtf_msgs.append(f"✅ 15m flipped Bullish")
             elif flip_15_dir == -1:
