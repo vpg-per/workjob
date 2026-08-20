@@ -215,26 +215,24 @@ def build_combined_alert(
 
         mtf_flag = " | ".join(mtf_msgs)
 
-
     # ── Build header + TF rows ────────────────────────────────────────────────
-    lines = [
-        f"📊 {symbol} -{now_str} — Bias {mtf_flag if mtf_flag else 'update'}",
-        "",
-    ]
+    lines: list[str] = []
+    if not mtf_flag:
+        lines.append(f"📊 {symbol} -{now_str} — Bias {mtf_flag if mtf_flag else 'update'}")
 
-    for interval in _MTF_INTERVALS:
-        info = interval_infos.get(interval)
-        if info is None:
-            continue
-        cur = info["current_bias"]
-        em  = _bias_emoji(cur)
-        if info["changed"]:
-            lines.append(
-                f"{em} {interval:>3s}  FLIPPED: {info['prev_bias']} → {info['last_bias']}"
-                f"  (close: {info['last_close']:.2f})"
-            )
-        else:
-            lines.append(f"{em} {interval:>3s}  No change  [current: {cur}]")
+        for interval in _MTF_INTERVALS:
+            info = interval_infos.get(interval)
+            if info is None:
+                continue
+            cur = info["current_bias"]
+            em  = _bias_emoji(cur)
+            if info["changed"]:
+                lines.append(
+                    f"{em} {interval:>3s}  FLIPPED: {info['prev_bias']} → {info['last_bias']}"
+                    f"  (close: {info['last_close']:.2f})"
+                )
+            else:
+                lines.append(f"{em} {interval:>3s}  No change  [current: {cur}]")
 
     return "\n".join(lines)
 
