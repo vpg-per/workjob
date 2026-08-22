@@ -217,7 +217,7 @@ def build_combined_alert(
 
     # ── Build header + TF rows ────────────────────────────────────────────────
     lines: list[str] = []
-    if not mtf_flag:
+    if mtf_flag:
         lines.append(f"📊 {symbol} -{now_str} — Bias {mtf_flag if mtf_flag else 'update'}")
 
         for interval in _MTF_INTERVALS:
@@ -390,7 +390,7 @@ def main() -> None:
         symb_lines.append(alertstr if alertstr else "")       
         if symb_lines:
             symb_lines.append("")
-        symb_lines.extend(build_levels_line(symbol, results))
+            symb_lines.extend(build_levels_line(symbol, results))
         alert_msg = "\n".join(symb_lines)
 
         if not alert_msg:
