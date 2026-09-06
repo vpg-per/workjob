@@ -10,10 +10,6 @@ from zoneinfo import ZoneInfo
 EASTERN_TZ = ZoneInfo("America/New_York")
 VOLUME_HISTORY_CUTOFF = dt.time(10, 30)
 
-def utc_naive_to_eastern_naive(utc_naive: dt.datetime) -> dt.datetime:
-    return utc_naive.replace(tzinfo=dt.timezone.utc).astimezone(EASTERN_TZ).replace(tzinfo=None)
-
-
 def should_process_volumehistory(argv) -> bool:
     if len(argv) > 1:
         return True
@@ -21,12 +17,17 @@ def should_process_volumehistory(argv) -> bool:
     now_eastern = dt.datetime.now(EASTERN_TZ).time()
     return now_eastern >= VOLUME_HISTORY_CUTOFF
 
+def should_send_gexalert() -> bool:
+    now_eastern = dt.datetime.now(EASTERN_TZ).time()
+    current_minute = now_eastern.minute
+    return current_minute > 15 and current_minute < 30
 
 def processmain():
     alertMgr = AlertManager()
     gxprocessor = GexProcessor()
     gex_image_buffer = gxprocessor.process_gexrequest()
-    alertMgr.send_photo_alert(gex_image_buffer)
+    if should_send_gexalert():
+        alertMgr.send_photo_alert(gex_image_buffer)
     gex_image_buffer.close()
 
     if should_process_volumehistory(sys.argv):
