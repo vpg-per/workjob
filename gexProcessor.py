@@ -3,17 +3,19 @@ import gc
 import os
 import tempfile
 import time
-from gitalertmanager import AlertManager
+from typing import Optional
+
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 GEX_URL = "https://optionexp.streamlit.app/~/+/?symbol=SPY&min_oi=10&strikes=8/favicon.png"
 VOLUME_HISTORY_URL = "https://optionexp.streamlit.app/~/+/Volume_History"
 WAKEUP_URL = "https://optionexp.streamlit.app/"
 
+WAKE_SETTLE_SECONDS = 99
+
 
 class GexProcessor:
     def __init__(self):
-
         try:
             from dotenv import load_dotenv
             load_dotenv()
@@ -38,7 +40,7 @@ class GexProcessor:
         sleep_button = page.locator('button[data-testid="wakeup-button-viewer"]')
         if sleep_button.is_visible():
             sleep_button.click()
-        time.sleep(99)
+        time.sleep(WAKE_SETTLE_SECONDS)
 
     def _download_chart(self, page) -> bytes:
         """Clicks the download button and returns the downloaded file's bytes."""
@@ -56,41 +58,49 @@ class GexProcessor:
             with open(tmp_path, "rb") as f:
                 return f.read()
 
-    def _capture_chart_from_url(self, url: str) -> io.BytesIO:
-        """Shared capture flow: navigate, ensure connection (waking the app if needed),
-        download the chart, and return it as a buffer."""
-        buf = io.BytesIO()
+    def _capture_chart_from_url(self, url: str) -> Optional[io.BytesIO]:
+        """Navigate, ensure connection (waking the app if needed), download the chart.
+
+        Returns a rewound BytesIO on success, or None if the capture failed. Callers
+        must check for None rather than assuming they got usable image bytes.
+        """
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
             try:
+                page = browser.new_page()
                 page.goto(url, wait_until="networkidle")
-                is_connected = self._wait_for_connection(page)
 
-                if not is_connected:
+                if not self._wait_for_connection(page):
                     self._wake_app(page)
                     page.goto(url, wait_until="networkidle")
-                    self._wait_for_connection(page)
+                    if not self._wait_for_connection(page):
+                        print(f"Capture failed: app never connected for {url}")
+                        return None
 
-                buf.write(self._download_chart(page))
+                data = self._download_chart(page)
+                if not data:
+                    print(f"Capture failed: empty download for {url}")
+                    return None
+
+                buf = io.BytesIO(data)
                 buf.seek(0)
-                browser.close()
+                return buf
 
             except PlaywrightTimeoutError as err:
-                print(f"Error: {err}")
-                pass
+                print(f"Capture failed for {url}: {err}")
+                return None
+            finally:
+                browser.close()
+                gc.collect()
 
-            gc.collect()
-        return buf
-
-    def capture_gexchart(self) -> io.BytesIO:
+    def capture_gexchart(self) -> Optional[io.BytesIO]:
         return self._capture_chart_from_url(GEX_URL)
 
-    def capture_volumehistorychart(self) -> io.BytesIO:
+    def capture_volumehistorychart(self) -> Optional[io.BytesIO]:
         return self._capture_chart_from_url(VOLUME_HISTORY_URL)
 
-    def process_gexrequest(self) -> io.BytesIO:
+    def process_gexrequest(self) -> Optional[io.BytesIO]:
         return self.capture_gexchart()
 
-    def process_volumehistoryrequest(self) -> io.BytesIO:
+    def process_volumehistoryrequest(self) -> Optional[io.BytesIO]:
         return self.capture_volumehistorychart()

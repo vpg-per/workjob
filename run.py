@@ -1,45 +1,74 @@
-import os
 import sys
-import base64
 import gc
 import datetime as dt
+from zoneinfo import ZoneInfo
+
 from gitalertmanager import AlertManager
 from gexProcessor import GexProcessor
-from zoneinfo import ZoneInfo
+from imageMerger import merge_images
 
 EASTERN_TZ = ZoneInfo("America/New_York")
 VOLUME_HISTORY_CUTOFF = dt.time(10, 30)
+
 
 def should_process_volumehistory(argv) -> bool:
     if len(argv) > 1:
         return True
 
     now_eastern = dt.datetime.now(EASTERN_TZ).time()
-    current_minute = now_eastern.minute
-    return now_eastern >= VOLUME_HISTORY_CUTOFF and current_minute > 15 and current_minute < 30
+    return now_eastern >= VOLUME_HISTORY_CUTOFF
+
 
 def should_send_gexalert() -> bool:
     now_eastern = dt.datetime.now(EASTERN_TZ).time()
     current_minute = now_eastern.minute
-    return current_minute > 15 and current_minute < 30
+    return 15 < current_minute < 30
+
 
 def processmain():
-    alertMgr = AlertManager()
+    want_gex = should_send_gexalert()
+    want_volume_history = should_process_volumehistory(sys.argv)
+
+    if not (want_gex or want_volume_history):
+        print("nothing to send")
+        return
+
     gxprocessor = GexProcessor()
-    gex_image_buffer = gxprocessor.process_gexrequest()
-    if should_send_gexalert():
-        alertMgr.send_photo_alert(gex_image_buffer)
-    gex_image_buffer.close()
+    buffers = []
+    merged = None
 
-    if should_process_volumehistory(sys.argv):
-        vh_image_buffer = gxprocessor.process_volumehistoryrequest()
-        alertMgr.send_photo_alert(vh_image_buffer)
-        vh_image_buffer.close()
-        del vh_image_buffer
+    try:
+        # Only launch a browser for charts we actually intend to send.
+        if want_gex:
+            gex_buf = gxprocessor.process_gexrequest()
+            if gex_buf is not None:
+                buffers.append(gex_buf)
 
-    print("done")
-    del gex_image_buffer, alertMgr, gxprocessor
-    gc.collect()
+        if want_volume_history:
+            vh_buf = gxprocessor.process_volumehistoryrequest()
+            if vh_buf is not None:
+                buffers.append(vh_buf)
+
+        if not buffers:
+            print("no charts captured; nothing sent")
+            return
+
+        merged = merge_images(buffers, direction="horizontal")
+        if merged is None:
+            print("merge produced no image; nothing sent")
+            return
+
+        alertMgr = AlertManager()
+        alertMgr.send_photo_alert(merged)
+        print("done")
+
+    finally:
+        for buf in buffers:
+            buf.close()
+        if merged is not None:
+            merged.close()
+        gc.collect()
+
 
 if __name__ == '__main__':
-    spy_data = processmain()
+    processmain()
