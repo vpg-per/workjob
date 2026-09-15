@@ -16,7 +16,8 @@ def should_process_volumehistory(argv) -> bool:
         return True
 
     now_eastern = dt.datetime.now(EASTERN_TZ).time()
-    return now_eastern >= VOLUME_HISTORY_CUTOFF
+    current_minute = now_eastern.minute
+    return 15 < current_minute < 30 and now_eastern >= VOLUME_HISTORY_CUTOFF
 
 
 def should_send_gexalert() -> bool:
