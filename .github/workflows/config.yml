@@ -38,17 +38,16 @@ jobs:
         USER_SECRET: ${{ vars.TELE_TOKEN }}
       run: python run.py
 
-
-    # New parallel job added to purge logs every 5 minutes 
-    clear-old-runs:
-      runs-on: ubuntu-latest
-      permissions:
-        actions: write
-      steps:
-        - name: Delete old workflow runs
-          uses: Mattraks/delete-workflow-runs@v2
-          with:
-            token: ${{ github.token }}
-            repository: ${{ github.repository }}
-            retain_days: 0
-            keep_minimum_runs: 100 # Keeps the last 100 runs so you can still track recent failures if they happen
+  # New parallel job added to purge logs every 5 minutes
+  clear-old-runs:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          keep_minimum_runs: 100 # Keeps the last 100 runs so you can still track recent failures if they happen
