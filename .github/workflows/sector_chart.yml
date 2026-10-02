@@ -4,15 +4,12 @@ on:
   push:
     branches: [ "main" ]
   workflow_dispatch: 
-  
- # schedule:
- #   - cron: '16 13,14,16,17,19,20 * * 1-5' 
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  run-gex-job:
+  run-sector-job:
     timeout-minutes: 15
     runs-on: ubuntu-latest
 
@@ -50,4 +47,4 @@ jobs:
           token: ${{ github.token }}
           repository: ${{ github.repository }}
           retain_days: 0
-          keep_minimum_runs: 20 # Keeps the last 20 runs so you can still track recent failures if they happen
+          keep_minimum_runs: 5 # Keeps the last 5 runs so you can still track recent failures if they happen
