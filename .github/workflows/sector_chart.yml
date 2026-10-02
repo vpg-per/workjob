@@ -1,0 +1,53 @@
+name: Run sector chart
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: 
+  
+ # schedule:
+ #   - cron: '16 13,14,16,17,19,20 * * 1-5' 
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  run-gex-job:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install playwright pytest
+        python -m playwright install chromium --with-deps
+
+    - name: Run Playwright Script
+      env:
+        USER_ID: ${{ vars.TELE_CHAT_ID }}
+        USER_SECRET: ${{ vars.TELE_TOKEN }}
+      run: python sectorProcessor.py
+
+  # New parallel job added to purge logs every 5 minutes
+  clear-old-runs:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          keep_minimum_runs: 20 # Keeps the last 20 runs so you can still track recent failures if they happen
