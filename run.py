@@ -16,8 +16,7 @@ def should_process_volumehistory(argv) -> bool:
         return True
 
     now_eastern = dt.datetime.now(EASTERN_TZ).time()
-    current_minute = now_eastern.minute
-    return 15 < current_minute < 30 and now_eastern >= VOLUME_HISTORY_CUTOFF
+    return now_eastern >= VOLUME_HISTORY_CUTOFF
 
 
 def should_send_gexalert() -> bool:
@@ -45,10 +44,10 @@ def processmain():
             if gex_buf is not None:
                 buffers.append(gex_buf)
 
-        if want_volume_history:
-            vh_buf = gxprocessor.process_volumehistoryrequest()
-            if vh_buf is not None:
-                buffers.append(vh_buf)
+        vh_buf, diff = gxprocessor.process_volumehistoryrequest()
+        state = "increased" if diff > 0 else "decreased" if diff < 0 else "neutral"
+        if vh_buf is not None:
+            buffers.append(vh_buf)
 
         if not buffers:
             print("no charts captured; nothing sent")
@@ -59,8 +58,9 @@ def processmain():
             print("merge produced no image; nothing sent")
             return
 
-        alertMgr = AlertManager()
-        alertMgr.send_photo_alert(merged)
+        if want_gex or want_volume_history or diff != 0:
+            alertMgr = AlertManager()
+            alertMgr.send_photo_alert(merged)
         print("done")
 
     finally:

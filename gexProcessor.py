@@ -1,6 +1,7 @@
 import io
 import gc
 import os
+import math
 import tempfile
 import time
 from typing import Optional
@@ -93,6 +94,36 @@ class GexProcessor:
                 browser.close()
                 gc.collect()
 
+    @staticmethod
+    def _read_png_metadata(png: io.BytesIO) -> dict:
+        """Return the text chunks embedded in a PNG (e.g. PCR_STATE, PCR_DIFF).
+        Needs Pillow; returns {} if it is missing or the image has no text."""
+        try:
+            from PIL import Image
+        except ImportError:
+            print("Pillow is not installed (pip install pillow); cannot read PNG metadata.")
+            return {}
+        png.seek(0)
+        try:
+            with Image.open(png) as img:
+                return dict(getattr(img, "text", {}) or {})
+        finally:
+            png.seek(0)
+
+    @staticmethod
+    def _parse_pcr_metadata(meta: dict) -> float:
+        """Turn raw PNG metadata into safe (pcr_state, pcr_diff) values.
+ 
+        Missing / 'NA' / 'unavailable' / unparsable values fall back to
+        pcr_diff = 0.0 and pcr_state = "neutral". If the state is invalid but a
+        valid non-zero diff exists, the state is derived from the diff's sign.
+        """
+        try:
+            diff = float(str(meta.get("PCR_DIFF", "")).replace(",", ""))
+        except ValueError:
+            diff = 0.0
+        return diff
+
     def capture_gexchart(self) -> Optional[io.BytesIO]:
         return self._capture_chart_from_url(GEX_URL)
 
@@ -102,5 +133,9 @@ class GexProcessor:
     def process_gexrequest(self) -> Optional[io.BytesIO]:
         return self.capture_gexchart()
 
-    def process_volumehistoryrequest(self) -> Optional[io.BytesIO]:
-        return self.capture_volumehistorychart()
+    def process_volumehistoryrequest(self) -> tuple[Optional[io.BytesIO], float]:
+        buf = self.capture_volumehistorychart()
+        
+        meta = self._read_png_metadata(buf)
+        pcr_diff = self._parse_pcr_metadata(meta)
+        return buf, pcr_diff
