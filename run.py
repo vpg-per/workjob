@@ -2,14 +2,12 @@ import sys
 import gc
 import datetime as dt
 from zoneinfo import ZoneInfo
-
 from gitalertmanager import AlertManager
 from gexProcessor import GexProcessor
 from imageMerger import merge_images
 
 EASTERN_TZ = ZoneInfo("America/New_York")
-VOLUME_HISTORY_CUTOFF = dt.time(10, 30)
-
+VOLUME_HISTORY_CUTOFF = dt.time(10, 00)
 
 def should_process_volumehistory(argv) -> bool:
     if len(argv) > 1:
@@ -18,27 +16,19 @@ def should_process_volumehistory(argv) -> bool:
     now_eastern = dt.datetime.now(EASTERN_TZ).time()
     return now_eastern >= VOLUME_HISTORY_CUTOFF
 
-
 def should_send_gexalert() -> bool:
     now_eastern = dt.datetime.now(EASTERN_TZ).time()
     current_minute = now_eastern.minute
     return 15 < current_minute < 30
 
-
 def processmain():
     want_gex = should_send_gexalert()
     want_volume_history = should_process_volumehistory(sys.argv)
 
-    if not (want_gex or want_volume_history):
-        print("nothing to send")
-        return
-
     gxprocessor = GexProcessor()
     buffers = []
     merged = None
-
     try:
-        # Only launch a browser for charts we actually intend to send.
         if want_gex:
             gex_buf = gxprocessor.process_gexrequest()
             if gex_buf is not None:
@@ -69,7 +59,6 @@ def processmain():
         if merged is not None:
             merged.close()
         gc.collect()
-
 
 if __name__ == '__main__':
     processmain()
