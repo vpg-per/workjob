@@ -112,11 +112,9 @@ class GexProcessor:
 
     @staticmethod
     def _parse_pcr_metadata(meta: dict) -> float:
-        """Turn raw PNG metadata into safe (pcr_state, pcr_diff) values.
- 
-        Missing / 'NA' / 'unavailable' / unparsable values fall back to
-        pcr_diff = 0.0 and pcr_state = "neutral". If the state is invalid but a
-        valid non-zero diff exists, the state is derived from the diff's sign.
+        """Turn raw PNG metadata into a safe pcr_diff value.
+
+        Missing / 'NA' / unparsable values fall back to 0.0.
         """
         try:
             diff = float(str(meta.get("PCR_DIFF", "")).replace(",", ""))
@@ -128,14 +126,31 @@ class GexProcessor:
         return self._capture_chart_from_url(GEX_URL)
 
     def capture_volumehistorychart(self) -> Optional[io.BytesIO]:
-        return self._capture_chart_from_url(VOLUME_HISTORY_URL)
+        """Download the Volume History chart, but only return it when the put-call
+        ratio moved ("Change vs previous snapshot" is Up or Down on the page).
+
+        The page embeds that same result in the PNG (PCR_STATE: Up / Down /
+        No change / unavailable). No change, fewer than two snapshots
+        with a ratio, a failed capture or unreadable metadata all return None.
+        """
+        buf = self._capture_chart_from_url(VOLUME_HISTORY_URL)
+        if buf is None:
+            return None
+
+        state = self._read_png_metadata(buf).get("PCR_STATE")
+        if state not in ("Up", "Down"):
+            print(f"Volume history chart skipped: put-call ratio change is '{state}' (not up/down).")
+            return None
+        return buf
 
     def process_gexrequest(self) -> Optional[io.BytesIO]:
         return self.capture_gexchart()
 
     def process_volumehistoryrequest(self) -> tuple[Optional[io.BytesIO], float]:
         buf = self.capture_volumehistorychart()
-        
+        if buf is None:  # capture failed, or the put-call ratio did not change
+            return None, 0.0
+
         meta = self._read_png_metadata(buf)
         pcr_diff = self._parse_pcr_metadata(meta)
         return buf, pcr_diff
