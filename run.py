@@ -35,7 +35,7 @@ def processmain():
                 buffers.append(gex_buf)
 
         vh_buf, diff = gxprocessor.process_volumehistoryrequest()
-        state = "increased" if diff > 0 else "decreased" if diff < 0 else "neutral"
+        state = "increased" if diff >= 0.03 else "decreased" if diff <= -0.03 else "neutral"
         if vh_buf is not None:
             buffers.append(vh_buf)
 
