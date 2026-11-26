@@ -126,31 +126,16 @@ class GexProcessor:
         return self._capture_chart_from_url(GEX_URL)
 
     def capture_volumehistorychart(self) -> Optional[io.BytesIO]:
-        """Download the Volume History chart, but only return it when the put-call
-        ratio moved ("Change vs previous snapshot" is Up or Down on the page).
-
-        The page embeds that same result in the PNG (PCR_STATE: Up / Down /
-        No change / unavailable). No change, fewer than two snapshots
-        with a ratio, a failed capture or unreadable metadata all return None.
-        """
         buf = self._capture_chart_from_url(VOLUME_HISTORY_URL)
-        if buf is None:
-            return None
-
-        state = self._read_png_metadata(buf).get("PCR_STATE")
-        if state not in ("Up", "Down"):
-            print(f"Volume history chart skipped: put-call ratio change is '{state}' (not up/down).")
-            return None
         return buf
 
     def process_gexrequest(self) -> Optional[io.BytesIO]:
         return self.capture_gexchart()
 
-    def process_volumehistoryrequest(self) -> tuple[Optional[io.BytesIO], float]:
+    def process_volumehistoryrequest(self) -> tuple[Optional[io.BytesIO], dict]:
         buf = self.capture_volumehistorychart()
         if buf is None:  # capture failed, or the put-call ratio did not change
-            return None, 0.0
-
-        meta = self._read_png_metadata(buf)
-        pcr_diff = self._parse_pcr_metadata(meta)
-        return buf, pcr_diff
+            return None, {}
+        
+        meta = self._read_png_metadata(buf)            
+        return buf, meta

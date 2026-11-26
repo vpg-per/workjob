@@ -6,58 +6,19 @@ from gitalertmanager import AlertManager
 from gexProcessor import GexProcessor
 from imageMerger import merge_images
 
-EASTERN_TZ = ZoneInfo("America/New_York")
-VOLUME_HISTORY_CUTOFF = dt.time(10, 00)
-
-def should_process_volumehistory(argv) -> bool:
-    if len(argv) > 1:
-        return True
-
-    now_eastern = dt.datetime.now(EASTERN_TZ).time()
-    return now_eastern >= VOLUME_HISTORY_CUTOFF
-
-def should_send_gexalert() -> bool:
-    now_eastern = dt.datetime.now(EASTERN_TZ).time()
-    current_minute = now_eastern.minute
-    return 15 < current_minute < 30
-
 def processmain():
-    want_gex = should_send_gexalert()
-    want_volume_history = should_process_volumehistory(sys.argv)
 
     gxprocessor = GexProcessor()
-    buffers = []
-    merged = None
     try:
-        if want_gex:
-            gex_buf = gxprocessor.process_gexrequest()
-            if gex_buf is not None:
-                buffers.append(gex_buf)
-
-        vh_buf, diff = gxprocessor.process_volumehistoryrequest()
-        state = "increased" if diff >= 0.03 else "decreased" if diff <= -0.03 else "neutral"
-        if vh_buf is not None:
-            buffers.append(vh_buf)
-
-        if not buffers:
-            print("no charts captured; nothing sent")
-            return
-
-        merged = merge_images(buffers, direction="horizontal")
-        if merged is None:
-            print("merge produced no image; nothing sent")
-            return
-
-        if want_gex or want_volume_history or diff != 0:
+        vh_buf, metadata = gxprocessor.process_volumehistoryrequest()
+        if metadata:
             alertMgr = AlertManager()
-            alertMgr.send_photo_alert(merged)
+            msg = f"PCR diff: {float(metadata['PCR_DIFF'])}, current: {float(metadata['PCR_CURRENT']):.4f}, prev: {float(metadata['PCR_LAST']):.4f}"
+            print(msg)
+            alertMgr.send_chart_alert(msg)
         print("done")
 
     finally:
-        for buf in buffers:
-            buf.close()
-        if merged is not None:
-            merged.close()
         gc.collect()
 
 if __name__ == '__main__':
